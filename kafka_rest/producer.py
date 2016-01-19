@@ -1,10 +1,10 @@
 import json
 from functools import partial
 import time
-from Queue import Full
+from Queue import Full, Empty
 from collections import namedtuple
 
-from tornado.ioloop import IOLoop
+from tornado.ioloop import IOLoop, PeriodicCallback
 from tornado.httpclient import AsyncHTTPClient
 from tornado.escape import json_decode
 
@@ -19,16 +19,41 @@ class FlushReason(object):
 class AsyncProducer(object):
     def __init__(self, client):
         self.client = client
-        # References to timed callbacks in the event loop
-        self.timers = {}
+        self.flush_timers = {}
+        self.retry_timer = None
         self.http_client = AsyncHTTPClient(io_loop=self.client.io_loop)
 
-    def _reset_timer(self, topic):
-        if topic in self.timers:
-            IOLoop.current().remove_timeout(self.timers[topic])
+    def _schedule_retry_periodically(self):
+        self.retry_timer = PeriodicCallback(self._start_retries,
+                                            self.client.retry_period_seconds * 1000)
+        self.retry_timer.start()
+
+    def _start_retries(self):
+        """Go through all the retry queues and schedule produce callbacks
+        for all messages that are due to be retried."""
+        current_time = time.time()
+        for topic, retry_queue in self.client.retry_queues.items():
+            batch = []
+            while not retry_queue.empty():
+                try:
+                    message = queue.get_nowait()
+                except Empty:
+                    break
+                if message.retry_after_time > current_time:
+                    break
+                batch.append(messaage)
+                if len(batch) >= self.client.flush_max_batch_size:
+                    IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
+                    batch = []
+            if batch:
+                IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
+
+    def _reset_flush_timer(self, topic):
+        if topic in self.flush_timers:
+            IOLoop.current().remove_timeout(self.flush_timers[topic])
         handle = IOLoop.current().call_later(self.client.flush_time_threshold_seconds,
                                              self._flush_topic, topic, FlushReason.TIME)
-        self.timers[topic] = handle
+        self.flush_timers[topic] = handle
 
     def _send_batch_produce_request(self, topic, batch):
         request = request_for_batch(self.client.host, self.client.port,
@@ -86,20 +111,20 @@ class AsyncProducer(object):
     def _flush_topic(self, topic, reason):
         queue, batch = self.client.message_queues[topic], []
         while not queue.empty():
-            message = queue.get_nowait()
-            if message:
-                batch.append(message)
-            else:
+            try:
+                message = queue.get_nowait()
+            except Empty:
                 break
+            batch.append(message)
             if len(batch) >= self.client.flush_max_batch_size:
                 IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
                 batch = []
         if batch:
             IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
-        self._reset_timer(topic)
+        self._reset_flush_timer(topic)
 
     def evaluate_queue(self, topic, queue):
         if queue.qsize() >= self.client.flush_length_threshold:
             self._flush_topic(topic, FlushReason.LENGTH)
-        elif topic not in self.timers:
-            self._reset_timer(topic)
+        elif topic not in self.flush_timers:
+            self._reset_flush_timer(topic)

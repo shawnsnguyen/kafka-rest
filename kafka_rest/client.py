@@ -13,7 +13,7 @@ class KafkaRESTClient(object):
                  flush_length_threshold=20, flush_time_threshold_seconds=20,
                  flush_max_batch_size=50, connect_timeout_seconds=60,
                  request_timeout_seconds=60, retry_base_seconds=2,
-                 retry_max_attempts=10):
+                 retry_max_attempts=10, retry_period_seconds=15):
         self.host = host
         self.port = port
         self.max_queue_size_per_topic = max_queue_size_per_topic
@@ -25,6 +25,7 @@ class KafkaRESTClient(object):
         self.retry_base_seconds = retry_base_seconds
         # Includes the original send as an attempt, so set to 1 to disable retry
         self.retry_max_attempts = retry_max_attempts
+        self.retry_period_seconds = retry_period_seconds
 
         self.registrar = EventRegistrar()
         self.message_queues = defaultdict(lambda: Queue(maxsize=max_queue_size_per_topic))
@@ -35,6 +36,7 @@ class KafkaRESTClient(object):
         self.io_loop = IOLoop()
 
         self.producer = AsyncProducer(self)
+        self.io_loop.add_callback(self.producer._schedule_retry_periodically)
 
         self.producer_thread = Thread(target=self.io_loop.start)
         self.producer_thread.daemon = True
