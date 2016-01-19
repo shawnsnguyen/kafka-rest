@@ -21,31 +21,40 @@ class AsyncProducer(object):
         self.client = client
         self.flush_timers = {}
         self.retry_timer = None
-        self.http_client = AsyncHTTPClient(io_loop=self.client.io_loop)
+        self.http_client = AsyncHTTPClient(io_loop=self.client.io_loop,
+                                           max_clients=self.client.http_max_clients)
 
     def _schedule_retry_periodically(self):
         self.retry_timer = PeriodicCallback(self._start_retries,
                                             self.client.retry_period_seconds * 1000)
         self.retry_timer.start()
 
+    def _message_batches_from_queue(self, queue):
+        current_time = time.time()
+        batches, current_batch = [], []
+        while not queue.empty():
+            try:
+                message = queue.get_nowait()
+            except Empty:
+                break
+            # If this is the retry queue, stop gathering if the first prioritized
+            # item in the queue isn't due for retry yet. If this is the first-send
+            # queue, this shouldn't ever trigger because retry_after_time is 0
+            if message.retry_after_time > current_time:
+                break
+            current_batch.append(messaage)
+            if len(current_batch) >= self.client.flush_max_batch_size:
+                batches.append(current_batch)
+                current_batch = []
+        if current_batch:
+            batches.append(current_batch)
+        return batches
+
     def _start_retries(self):
         """Go through all the retry queues and schedule produce callbacks
         for all messages that are due to be retried."""
-        current_time = time.time()
         for topic, retry_queue in self.client.retry_queues.items():
-            batch = []
-            while not retry_queue.empty():
-                try:
-                    message = queue.get_nowait()
-                except Empty:
-                    break
-                if message.retry_after_time > current_time:
-                    break
-                batch.append(messaage)
-                if len(batch) >= self.client.flush_max_batch_size:
-                    IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
-                    batch = []
-            if batch:
+            for batch in self._message_batches_from_queue(retry_queue):
                 IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
 
     def _reset_flush_timer(self, topic):
@@ -109,17 +118,9 @@ class AsyncProducer(object):
                 pass
 
     def _flush_topic(self, topic, reason):
-        queue, batch = self.client.message_queues[topic], []
-        while not queue.empty():
-            try:
-                message = queue.get_nowait()
-            except Empty:
-                break
-            batch.append(message)
-            if len(batch) >= self.client.flush_max_batch_size:
-                IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
-                batch = []
-        if batch:
+        self.client.registrar.emit('flush_topic', topic, reason)
+        queue = self.client.message_queues[topic]
+        for batch in self._message_batches_from_queue(queue):
             IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
         self._reset_flush_timer(topic)
 

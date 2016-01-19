@@ -9,13 +9,14 @@ from .producer import AsyncProducer
 from .message import Message
 
 class KafkaRESTClient(object):
-    def __init__(self, host, port, max_queue_size_per_topic=10000,
+    def __init__(self, host, port, http_max_clients=10, max_queue_size_per_topic=10000,
                  flush_length_threshold=20, flush_time_threshold_seconds=20,
                  flush_max_batch_size=50, connect_timeout_seconds=60,
                  request_timeout_seconds=60, retry_base_seconds=2,
                  retry_max_attempts=10, retry_period_seconds=15):
         self.host = host
         self.port = port
+        self.http_max_clients = http_max_clients
         self.max_queue_size_per_topic = max_queue_size_per_topic
         self.flush_length_threshold = flush_length_threshold
         self.flush_time_threshold_seconds = flush_time_threshold_seconds
