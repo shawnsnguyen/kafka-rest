@@ -1,19 +1,19 @@
 from threading import Thread
-from Queue import Queue, Full
+from Queue import Queue, PriorityQueue, Full
 from collections import defaultdict, namedtuple
 
 from tornado.ioloop import IOLoop
 
 from .events import EventRegistrar
 from .producer import AsyncProducer
-
-Message = namedtuple('Message', ['topic', 'value', 'key', 'partition'])
+from .message import Message
 
 class KafkaRESTClient(object):
     def __init__(self, host, port, max_queue_size_per_topic=10000,
                  flush_length_threshold=20, flush_time_threshold_seconds=20,
                  flush_max_batch_size=50, connect_timeout_seconds=60,
-                 request_timeout_seconds=60):
+                 request_timeout_seconds=60, retry_base_seconds=2,
+                 retry_max_attempts=10):
         self.host = host
         self.port = port
         self.max_queue_size_per_topic = max_queue_size_per_topic
@@ -22,9 +22,13 @@ class KafkaRESTClient(object):
         self.flush_max_batch_size = flush_max_batch_size
         self.connect_timeout_seconds = connect_timeout_seconds
         self.request_timeout_seconds = request_timeout_seconds
+        self.retry_base_seconds = retry_base_seconds
+        # Includes the original send as an attempt, so set to 1 to disable retry
+        self.retry_max_attempts = retry_max_attempts
 
         self.registrar = EventRegistrar()
         self.message_queues = defaultdict(lambda: Queue(maxsize=max_queue_size_per_topic))
+        self.retry_queues = defaultdict(lambda: PriorityQueue(maxsize=max_queue_size_per_topic))
         # Schema cache is carefully accessed by both threads, make sure to read the detailed
         # comments about it where it's used before changing anything
         self.schema_cache = {'value': {}, 'key': {}}
@@ -55,7 +59,7 @@ class KafkaRESTClient(object):
 
         queue = self.message_queues[topic]
         try:
-            queue.put_nowait(Message(topic, value, key, partition))
+            queue.put_nowait(Message(topic, value, key, partition, 0, 1))
         except Full:
             pass
         self.io_loop.add_callback(self.producer.evaluate_queue, topic, queue)
