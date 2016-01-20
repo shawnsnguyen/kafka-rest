@@ -1,12 +1,15 @@
+import logging
 from threading import Thread
 from Queue import Queue, PriorityQueue, Full
 from collections import defaultdict, namedtuple
 
 from tornado.ioloop import IOLoop
 
-from .events import EventRegistrar
+from .events import EventRegistrar, DropReason
 from .producer import AsyncProducer
 from .message import Message
+
+logger = logging.getLogger('kafka_rest.client')
 
 class KafkaRESTClient(object):
     def __init__(self, host, port, http_max_clients=10, max_queue_size_per_topic=10000,
@@ -42,6 +45,11 @@ class KafkaRESTClient(object):
         self.producer_thread = Thread(target=self.io_loop.start)
         self.producer_thread.daemon = True
         self.producer_thread.start()
+        logger.debug('Started producer background thread')
+
+        self.registrar.emit('client.init', self)
+
+        logger.debug('Kafka REST async client initialized for {}:{}'.format(self.host, self.port))
 
     def produce(self, topic, value, value_schema, key=None, key_schema=None, partition=None):
         """Place this message on the appropriate topic queue for asynchronous
@@ -56,13 +64,19 @@ class KafkaRESTClient(object):
         # messages and should still be consistent and avoid concurrency issues.
         # N.B. This all assumes the schema for a topic does not change during a process's lifetime.
         if topic not in self.schema_cache['value']:
+            logger.debug('Storing initial value schema for topic {} in schema cache: {}'.format(topic, value_schema))
             self.schema_cache['value'][topic] = value_schema
         if key_schema and topic not in self.schema_cache['key']:
+            logger.debug('Storing initial key schema for topic {} in schema cache: {}'.format(topic, key_schema))
             self.schema_cache['key'][topic] = key_schema
 
         queue = self.message_queues[topic]
+        message = Message(topic, value, key, partition, 0, 1)
         try:
-            queue.put_nowait(Message(topic, value, key, partition, 0, 1))
+            queue.put_nowait(message)
         except Full:
-            pass
-        self.io_loop.add_callback(self.producer.evaluate_queue, topic, queue)
+            logger.critical('Primary event queue is full for topic {}, message {} will be dropped'.format(topic, message))
+            self.registrar.emit('drop_message', topic, message, DropReason.PRIMARY_QUEUE_FULL)
+        else:
+            self.registrar.emit('produce', message)
+            self.io_loop.add_callback(self.producer.evaluate_queue, topic, queue)

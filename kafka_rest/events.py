@@ -3,6 +3,17 @@ from collections import defaultdict
 
 logger = logging.getLogger('kafka_rest.events')
 
+class FlushReason(object):
+    LENGTH = 'length'
+    TIME = 'time'
+    QUIT = 'quit'
+
+class DropReason(object):
+    NONRETRIABLE = 'nonretriable'
+    PRIMARY_QUEUE_FULL = 'primary_queue_full'
+    RETRY_QUEUE_FULL = 'retry_queue_full'
+    MAX_RETRIES_EXCEEDED = 'max_retries_exceeded'
+
 class EventRegistrar(object):
     """
     Handles registration of callable event handlers which are

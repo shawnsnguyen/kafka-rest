@@ -1,3 +1,4 @@
+import logging
 import json
 from functools import partial
 import time
@@ -10,11 +11,9 @@ from tornado.escape import json_decode
 
 from .rest_proxy import request_for_batch, RETRIABLE_ERROR_CODES
 from .message import Message
+from .events import FlushReason, DropReason
 
-class FlushReason(object):
-    LENGTH = 'length'
-    TIME = 'time'
-    QUIT = 'quit'
+logger = logging.getLogger('kafka_rest.producer')
 
 class AsyncProducer(object):
     def __init__(self, client):
@@ -25,13 +24,14 @@ class AsyncProducer(object):
                                            max_clients=self.client.http_max_clients)
 
     def _schedule_retry_periodically(self):
+        logger.debug('Scheduling retry queue processing every {} seconds'.format(self.client.retry_period_seconds))
         self.retry_timer = PeriodicCallback(self._start_retries,
                                             self.client.retry_period_seconds * 1000)
         self.retry_timer.start()
 
     def _message_batches_from_queue(self, queue):
         current_time = time.time()
-        batches, current_batch = [], []
+        current_batch = []
         while not queue.empty():
             try:
                 message = queue.get_nowait()
@@ -42,24 +42,29 @@ class AsyncProducer(object):
             # queue, this shouldn't ever trigger because retry_after_time is 0
             if message.retry_after_time > current_time:
                 break
-            current_batch.append(messaage)
+            current_batch.append(message)
             if len(current_batch) >= self.client.flush_max_batch_size:
-                batches.append(current_batch)
+                yield current_batch
                 current_batch = []
         if current_batch:
-            batches.append(current_batch)
-        return batches
+            yield current_batch
 
     def _start_retries(self):
         """Go through all the retry queues and schedule produce callbacks
         for all messages that are due to be retried."""
+        logger.debug('Checking retry queues for events to retry')
         for topic, retry_queue in self.client.retry_queues.items():
             for batch in self._message_batches_from_queue(retry_queue):
+                logger.debug('Retrying batch of size {} for topic {}'.format(len(batch), topic))
+                self.client.registrar.emit('retry_batch', topic, batch)
                 IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
 
     def _reset_flush_timer(self, topic):
         if topic in self.flush_timers:
+            logger.debug('Clearing flush timer for topic {}'.format(topic))
             IOLoop.current().remove_timeout(self.flush_timers[topic])
+        logger.debug('Scheduled new flush timer for topic {} in {} seconds'.format(topic,
+                                                                                   self.client.flush_time_threshold_seconds))
         handle = IOLoop.current().call_later(self.client.flush_time_threshold_seconds,
                                              self._flush_topic, topic, FlushReason.TIME)
         self.flush_timers[topic] = handle
@@ -69,39 +74,65 @@ class AsyncProducer(object):
                                     self.client.connect_timeout_seconds,
                                     self.client.request_timeout_seconds,
                                     self.client.schema_cache, topic, batch)
+        logger.info('Sending {} events to topic {}'.format(len(batch), topic))
+        self.client.registrar.emit('send_request', topic, batch)
         self.http_client.fetch(request,
                                callback=partial(self._handle_produce_response, topic),
                                raise_error=False)
 
     def _queue_message_for_retry(self, topic, message):
         if message.can_retry(self.client):
+            new_message = message.for_retry(self.client)
             try:
-                self.client.retry_queues[topic].put_nowait(message.for_retry(self.client))
+                self.client.retry_queues[topic].put_nowait(new_message)
             except Full:
-                pass
+                logger.critical('Retry queue full for topic {}, message {} cannot be retried'.format(topic, message))
+                self.client.registrar.emit('drop_message', topic, message, DropReason.RETRY_QUEUE_FULL)
+            else:
+                logger.debug('Queued failed message {} for retry in topic {}'.format(new_message, topic))
+                self.client.registrar.emit('retry_message', topic, new_message)
         else:
-            pass
+            logger.critical('Dropping failed message {} for topic {}, has exceeded maximum retries'.format(message, topic))
+            self.client.registrar.emit('drop_message', topic, message, DropReason.MAX_RETRIES_EXCEEDED)
 
     def _handle_produce_success(self, topic, response, response_body):
         # Store schema IDs if we haven't already
         if not isinstance(self.client.schema_cache['value'][topic], int):
+            logger.debug('Storing value schema ID of {} for topic {}'.format(response_body['value_schema_id'], topic))
             self.client.schema_cache['value'][topic] = response_body['value_schema_id']
         if not isinstance(self.client.schema_cache['key'].get(topic), int):
+            logger.debug('Storing key schema ID of {} for topic {}'.format(response_body['key_schema_id'], topic))
             self.client.schema_cache['key'][topic] = response_body['key_schema_id']
 
         # Individual requests could still have failed, need to check
         # each response object's error code
+        succeeded, failed = [], []
         for idx, offset in enumerate(response_body['offsets']):
+            message = response.request._batch[idx]
             if offset.get('error_code') == 1: # Non-retriable Kafka exception
-                pass
+                failed.append((message, offset))
+                logger.critical('Got non-retriable Kafka exception "{}" for message {}'.format(offset.get('message'),
+                                                                                               response.request._batch[idx]))
+                self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
             elif offset.get('error_code') == 2: # Retriable Kafka exception
-                message = response.request._batch[idx]
+                failed.append((message, offset))
                 self._queue_message_for_retry(topic, message)
+            else:
+                succeeded.append((message, offset))
+
+        logger.info('Successful produce response for topic {}. Succeeded: {} Failed: {}'.format(topic,
+                                                                                                len(succeeded),
+                                                                                                len(failed)))
+        logger.debug('Failed messages with offsets: {}'.format(failed))
+        self.client.registrar.emit('produce_success', topic, succeeded, failed)
 
     def _handle_produce_response(self, topic, response):
         # First, we check for a transport error
         if response.error:
-            return
+            logger.error('Transport error submitting batch to topic {}: {}'.format(topic, response.error))
+            self.client.registrar.emit('transport_error', topic, response.error)
+            for message in response.request._batch:
+                self._queue_message_for_retry(topic, message)
 
         # We should have gotten a well-formed response back from the
         # proxy if we got this far
@@ -115,9 +146,11 @@ class AsyncProducer(object):
                 for message in response.request._batch:
                     self._queue_message_for_retry(topic, message)
             else: # Non-retriable failure of entire request
-                pass
+                for message in response.request._batch:
+                    self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
 
     def _flush_topic(self, topic, reason):
+        logger.debug('Flushing topic {} (reason: {})'.format(topic, reason))
         self.client.registrar.emit('flush_topic', topic, reason)
         queue = self.client.message_queues[topic]
         for batch in self._message_batches_from_queue(queue):
