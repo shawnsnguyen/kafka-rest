@@ -6,7 +6,7 @@ logger = logging.getLogger('kafka_rest.events')
 class FlushReason(object):
     LENGTH = 'length'
     TIME = 'time'
-    QUIT = 'quit'
+    SHUTDOWN = 'shutdown'
 
 class DropReason(object):
     NONRETRIABLE = 'nonretriable'

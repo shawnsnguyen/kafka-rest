@@ -8,6 +8,7 @@ from tornado.ioloop import IOLoop
 from .events import EventRegistrar, DropReason
 from .producer import AsyncProducer
 from .message import Message
+from .exceptions import KafkaRestShutdownException
 
 logger = logging.getLogger('kafka_rest.client')
 
@@ -16,7 +17,8 @@ class KafkaRESTClient(object):
                  flush_length_threshold=20, flush_time_threshold_seconds=20,
                  flush_max_batch_size=50, connect_timeout_seconds=60,
                  request_timeout_seconds=60, retry_base_seconds=2,
-                 retry_max_attempts=10, retry_period_seconds=15):
+                 retry_max_attempts=10, retry_period_seconds=15,
+                 shutdown_timeout_seconds=2):
         self.host = host
         self.port = port
         self.http_max_clients = http_max_clients
@@ -30,6 +32,11 @@ class KafkaRESTClient(object):
         # Includes the original send as an attempt, so set to 1 to disable retry
         self.retry_max_attempts = retry_max_attempts
         self.retry_period_seconds = retry_period_seconds
+        # On shutdown, last-ditch flush attempts are given this
+        # request timeout after which they are considered failed
+        self.shutdown_timeout_seconds = shutdown_timeout_seconds
+
+        self._in_shutdown = False
 
         self.registrar = EventRegistrar()
         self.message_queues = defaultdict(lambda: Queue(maxsize=max_queue_size_per_topic))
@@ -54,6 +61,9 @@ class KafkaRESTClient(object):
     def produce(self, topic, value, value_schema, key=None, key_schema=None, partition=None):
         """Place this message on the appropriate topic queue for asynchronous
         emission."""
+        if self._in_shutdown:
+            raise KafkaRestShutdownException('Client is in shutdown state, new events cannot be produced')
+
         # This piece is a bit clever. Because we do not do anything to seed the schemas
         # for a topic before the first produce call, we know that the main thread will be the
         # first to touch the schema cache key for a given topic. Therefore, if and only if the key
@@ -80,3 +90,19 @@ class KafkaRESTClient(object):
         else:
             self.registrar.emit('produce', message)
             self.io_loop.add_callback(self.producer.evaluate_queue, topic, queue)
+
+    def shutdown(self, block=False):
+        """Prohibit further produce requests and attempt to flush all events currently in
+        the main and retry queues. After this attempt, all remaining events are made
+        available to an event handler but will otherwise be dropped. The producer
+        thread and IOLoop are also shut down. If block=True, this blocks until
+        the producer thread is dead and the shutdown event has been handled."""
+        logger.info('Client shutting down')
+        self._in_shutdown = True
+        self.io_loop.add_callback(self.producer.start_shutdown)
+
+        if block:
+            self.producer_thread.join()
+            logger.info('Client completed shutdown')
+        else:
+            logger.info('Client shutting down asynchronously, will not block')

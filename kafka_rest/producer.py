@@ -70,9 +70,14 @@ class AsyncProducer(object):
         self.flush_timers[topic] = handle
 
     def _send_batch_produce_request(self, topic, batch):
+        if self.client._in_shutdown:
+            connect_timeout = self.client.shutdown_timeout_seconds
+            request_timeout = self.client.shutdown_timeout_seconds
+        else:
+            connect_timeout = self.client.connect_timeout_seconds
+            request_timeout = self.client.request_timeout_seconds
         request = request_for_batch(self.client.host, self.client.port,
-                                    self.client.connect_timeout_seconds,
-                                    self.client.request_timeout_seconds,
+                                    connect_timeout, request_timeout,
                                     self.client.schema_cache, topic, batch)
         logger.info('Sending {} events to topic {}'.format(len(batch), topic))
         self.client.registrar.emit('send_request', topic, batch)
@@ -155,10 +160,42 @@ class AsyncProducer(object):
         queue = self.client.message_queues[topic]
         for batch in self._message_batches_from_queue(queue):
             IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
-        self._reset_flush_timer(topic)
+        if not self.client._in_shutdown:
+            self._reset_flush_timer(topic)
 
     def evaluate_queue(self, topic, queue):
         if queue.qsize() >= self.client.flush_length_threshold:
             self._flush_topic(topic, FlushReason.LENGTH)
         elif topic not in self.flush_timers:
             self._reset_flush_timer(topic)
+
+    def start_shutdown(self):
+        """Prevent the producer from firing off any additional requests
+        as a result of timers, then schedule the remainder of the shutdown
+        tasks to take place after giving in-flight requests some time
+        to return."""
+        # We need to take manual control of the event loop now, so
+        # we stop the timers in order to not fight against them
+        for topic in self.flush_timers:
+            logger.debug('Shutdown: removing flush timer for topic {}'.format(topic))
+            IOLoop.current().remove_timeout(self.flush_timers[topic])
+
+        # Last-ditch send attempts on remaining messages. These will use
+        # shorter shutdown timeouts on the request in order to finish
+        # by the time we invoke _finish_shutdown
+        IOLoop.current().add_callback(self._start_retries)
+        for topic, queue in self.client.message_queues.items():
+            if not queue.empty():
+                IOLoop.current().add_callback(self._flush_topic, topic, FlushReason.SHUTDOWN)
+
+        logger.debug('Shutdown: waiting {} seconds for in-flight requests to return'.format(self.client.shutdown_timeout_seconds))
+        IOLoop.current().call_later(self.client.shutdown_timeout_seconds, self._finish_shutdown)
+
+    def _finish_shutdown(self):
+        # Anything not sent at this point is not going to make it out. We
+        # fire off a specialized event in this case to give the
+        # application code a chance to do something with this data all
+        # at once.
+        self.client.registrar.emit('shutdown', self.client.message_queues, self.client.retry_queues)
+        IOLoop.current().stop()
+        logger.debug('Producer issued stop command to IOLoop')
