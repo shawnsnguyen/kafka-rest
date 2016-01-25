@@ -70,7 +70,7 @@ class AsyncProducer(object):
         self.flush_timers[topic] = handle
 
     def _send_batch_produce_request(self, topic, batch):
-        if self.client._in_shutdown:
+        if self.client.in_shutdown:
             connect_timeout = self.client.shutdown_timeout_seconds
             request_timeout = self.client.shutdown_timeout_seconds
         else:
@@ -160,7 +160,7 @@ class AsyncProducer(object):
         queue = self.client.message_queues[topic]
         for batch in self._message_batches_from_queue(queue):
             IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
-        if not self.client._in_shutdown:
+        if not self.client.in_shutdown:
             self._reset_flush_timer(topic)
 
     def evaluate_queue(self, topic, queue):

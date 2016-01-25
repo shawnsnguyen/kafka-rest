@@ -36,7 +36,7 @@ class KafkaRESTClient(object):
         # request timeout after which they are considered failed
         self.shutdown_timeout_seconds = shutdown_timeout_seconds
 
-        self._in_shutdown = False
+        self.in_shutdown = False
 
         self.registrar = EventRegistrar()
         self.message_queues = defaultdict(lambda: Queue(maxsize=max_queue_size_per_topic))
@@ -61,7 +61,7 @@ class KafkaRESTClient(object):
     def produce(self, topic, value, value_schema, key=None, key_schema=None, partition=None):
         """Place this message on the appropriate topic queue for asynchronous
         emission."""
-        if self._in_shutdown:
+        if self.in_shutdown:
             raise KafkaRestShutdownException('Client is in shutdown state, new events cannot be produced')
 
         # This piece is a bit clever. Because we do not do anything to seed the schemas
@@ -98,7 +98,7 @@ class KafkaRESTClient(object):
         thread and IOLoop are also shut down. If block=True, this blocks until
         the producer thread is dead and the shutdown event has been handled."""
         logger.info('Client shutting down')
-        self._in_shutdown = True
+        self.in_shutdown = True
         self.io_loop.add_callback(self.producer.start_shutdown)
 
         if block:
