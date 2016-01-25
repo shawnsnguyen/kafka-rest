@@ -196,7 +196,8 @@ class AsyncProducer(object):
         # registered this call here before any of those calls did their 0.1 seconds
         # of work, we would actually invoke _finish_shutdown before the last request
         # made had the full length of time allotted to it to finish its request.
-        IOLoop.current().add_callback(lambda: IOLoop.current().call_later(self.client.shutdown_timeout_seconds, self._finish_shutdown))
+        IOLoop.current().add_callback(lambda: IOLoop.current().call_later(self.client.shutdown_timeout_seconds,
+                                                                          self._finish_shutdown))
 
     def _finish_shutdown(self):
         # Anything not sent at this point is not going to make it out. We
