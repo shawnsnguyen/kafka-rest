@@ -198,4 +198,4 @@ class AsyncProducer(object):
         # at once.
         self.client.registrar.emit('shutdown', self.client.message_queues, self.client.retry_queues)
         IOLoop.current().stop()
-        logger.debug('Producer issued stop command to IOLoop')
+        logger.debug('Shutdown: producer issued stop command to IOLoop')
