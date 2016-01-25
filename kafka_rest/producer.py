@@ -189,7 +189,14 @@ class AsyncProducer(object):
                 IOLoop.current().add_callback(self._flush_topic, topic, FlushReason.SHUTDOWN)
 
         logger.debug('Shutdown: waiting {} seconds for in-flight requests to return'.format(self.client.shutdown_timeout_seconds))
-        IOLoop.current().call_later(self.client.shutdown_timeout_seconds, self._finish_shutdown)
+
+        # We issue this step in a separate callback to get around a small timing issue
+        # with sending out all these requests before shutdown. If you imagine that the
+        # _flush_topic calls above take 0.1 seconds each to complete, if we simply
+        # registered this call here before any of those calls did their 0.1 seconds
+        # of work, we would actually invoke _finish_shutdown before the last request
+        # made had the full length of time allotted to it to finish its request.
+        IOLoop.current().add_callback(lambda: IOLoop.current().call_later(self.client.shutdown_timeout_seconds, self._finish_shutdown))
 
     def _finish_shutdown(self):
         # Anything not sent at this point is not going to make it out. We
