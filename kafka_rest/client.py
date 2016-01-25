@@ -8,7 +8,7 @@ from tornado.ioloop import IOLoop
 from .events import EventRegistrar, DropReason
 from .producer import AsyncProducer
 from .message import Message
-from .exceptions import KafkaRestShutdownException
+from .exceptions import KafkaRESTShutdownException
 
 logger = logging.getLogger('kafka_rest.client')
 
@@ -62,7 +62,7 @@ class KafkaRESTClient(object):
         """Place this message on the appropriate topic queue for asynchronous
         emission."""
         if self.in_shutdown:
-            raise KafkaRestShutdownException('Client is in shutdown state, new events cannot be produced')
+            raise KafkaRESTShutdownException('Client is in shutdown state, new events cannot be produced')
 
         # This piece is a bit clever. Because we do not do anything to seed the schemas
         # for a topic before the first produce call, we know that the main thread will be the
