@@ -33,7 +33,7 @@ def request_for_batch(host, port, connect_timeout, request_timeout,
         else:
             body['key_schema_id'] = key_schema
 
-    request = HTTPRequest('{}:{}/topics/{}'.format(host, port, topic),
+    request = HTTPRequest('{0}:{1}/topics/{2}'.format(host, port, topic),
                           connect_timeout=connect_timeout,
                           request_timeout=request_timeout,
                           method='POST',
