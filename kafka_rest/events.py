@@ -28,7 +28,7 @@ class EventRegistrar(object):
 
     def emit(self, event, *args, **kwargs):
         if self.debug:
-            logger.debug('Event: {} Args: {} Kwargs: {}'.format(event, args, kwargs))
+            logger.debug('Event: {0} Args: {1} Kwargs: {2}'.format(event, args, kwargs))
         for handler in self.handlers[event]:
             try:
                 handler(*args, **kwargs)

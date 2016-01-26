@@ -1,16 +1,26 @@
 from collections import namedtuple
-from functools import total_ordering
 import time
 
-@total_ordering
 class Message(namedtuple('Message', ['topic', 'value', 'key', 'partition', 'retry_after_time', 'attempt_number'])):
     # Comparisons are defined for the sake of the retry PriorityQueues
     # and will not make sense for other comparisons
     def __eq__(self, other):
         return self.retry_after_time == other.retry_after_time
 
+    def __ne__(self, other):
+        return self.retry_after_time == other.retry_after_time
+
     def __lt__(self, other):
         return self.retry_after_time < other.retry_after_time
+
+    def __le__(self, other):
+        return self.retry_after_time <= other.retry_after_time
+
+    def __gt__(self, other):
+        return self.retry_after_time > other.retry_after_time
+
+    def __ge__(self, other):
+        return self.retry_after_time >= other.retry_after_time
 
     def can_retry(self, client):
         return self.attempt_number < client.retry_max_attempts

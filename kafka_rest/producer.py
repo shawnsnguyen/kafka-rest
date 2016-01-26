@@ -24,7 +24,7 @@ class AsyncProducer(object):
                                            max_clients=self.client.http_max_clients)
 
     def _schedule_retry_periodically(self):
-        logger.debug('Scheduling retry queue processing every {} seconds'.format(self.client.retry_period_seconds))
+        logger.debug('Scheduling retry queue processing every {0} seconds'.format(self.client.retry_period_seconds))
         self.retry_timer = PeriodicCallback(self._start_retries,
                                             self.client.retry_period_seconds * 1000)
         self.retry_timer.start()
@@ -55,16 +55,16 @@ class AsyncProducer(object):
         logger.debug('Checking retry queues for events to retry')
         for topic, retry_queue in self.client.retry_queues.items():
             for batch in self._message_batches_from_queue(retry_queue):
-                logger.debug('Retrying batch of size {} for topic {}'.format(len(batch), topic))
+                logger.debug('Retrying batch of size {0} for topic {1}'.format(len(batch), topic))
                 self.client.registrar.emit('retry_batch', topic, batch)
                 IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
 
     def _reset_flush_timer(self, topic):
         if topic in self.flush_timers:
-            logger.debug('Clearing flush timer for topic {}'.format(topic))
+            logger.debug('Clearing flush timer for topic {0}'.format(topic))
             IOLoop.current().remove_timeout(self.flush_timers[topic])
-        logger.debug('Scheduled new flush timer for topic {} in {} seconds'.format(topic,
-                                                                                   self.client.flush_time_threshold_seconds))
+        logger.debug('Scheduled new flush timer for topic {0} in {1} seconds'.format(topic,
+                                                                                     self.client.flush_time_threshold_seconds))
         handle = IOLoop.current().call_later(self.client.flush_time_threshold_seconds,
                                              self._flush_topic, topic, FlushReason.TIME)
         self.flush_timers[topic] = handle
@@ -79,7 +79,7 @@ class AsyncProducer(object):
         request = request_for_batch(self.client.host, self.client.port,
                                     connect_timeout, request_timeout,
                                     self.client.schema_cache, topic, batch)
-        logger.info('Sending {} events to topic {}'.format(len(batch), topic))
+        logger.info('Sending {0} events to topic {1}'.format(len(batch), topic))
         self.client.registrar.emit('send_request', topic, batch)
         self.http_client.fetch(request,
                                callback=partial(self._handle_produce_response, topic),
@@ -91,22 +91,22 @@ class AsyncProducer(object):
             try:
                 self.client.retry_queues[topic].put_nowait(new_message)
             except Full:
-                logger.critical('Retry queue full for topic {}, message {} cannot be retried'.format(topic, message))
+                logger.critical('Retry queue full for topic {0}, message {1} cannot be retried'.format(topic, message))
                 self.client.registrar.emit('drop_message', topic, message, DropReason.RETRY_QUEUE_FULL)
             else:
-                logger.debug('Queued failed message {} for retry in topic {}'.format(new_message, topic))
+                logger.debug('Queued failed message {0} for retry in topic {1}'.format(new_message, topic))
                 self.client.registrar.emit('retry_message', topic, new_message)
         else:
-            logger.critical('Dropping failed message {} for topic {}, has exceeded maximum retries'.format(message, topic))
+            logger.critical('Dropping failed message {0} for topic {1}, has exceeded maximum retries'.format(message, topic))
             self.client.registrar.emit('drop_message', topic, message, DropReason.MAX_RETRIES_EXCEEDED)
 
     def _handle_produce_success(self, topic, response, response_body):
         # Store schema IDs if we haven't already
         if not isinstance(self.client.schema_cache['value'][topic], int):
-            logger.debug('Storing value schema ID of {} for topic {}'.format(response_body['value_schema_id'], topic))
+            logger.debug('Storing value schema ID of {0} for topic {1}'.format(response_body['value_schema_id'], topic))
             self.client.schema_cache['value'][topic] = response_body['value_schema_id']
         if not isinstance(self.client.schema_cache['key'].get(topic), int):
-            logger.debug('Storing key schema ID of {} for topic {}'.format(response_body['key_schema_id'], topic))
+            logger.debug('Storing key schema ID of {0} for topic {1}'.format(response_body['key_schema_id'], topic))
             self.client.schema_cache['key'][topic] = response_body['key_schema_id']
 
         # Individual requests could still have failed, need to check
@@ -116,7 +116,7 @@ class AsyncProducer(object):
             message = response.request._batch[idx]
             if offset.get('error_code') == 1: # Non-retriable Kafka exception
                 failed.append((message, offset))
-                logger.critical('Got non-retriable Kafka exception "{}" for message {}'.format(offset.get('message'),
+                logger.critical('Got non-retriable Kafka exception "{0}" for message {1}'.format(offset.get('message'),
                                                                                                response.request._batch[idx]))
                 self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
             elif offset.get('error_code') == 2: # Retriable Kafka exception
@@ -125,16 +125,16 @@ class AsyncProducer(object):
             else:
                 succeeded.append((message, offset))
 
-        logger.info('Successful produce response for topic {}. Succeeded: {} Failed: {}'.format(topic,
-                                                                                                len(succeeded),
-                                                                                                len(failed)))
-        logger.debug('Failed messages with offsets: {}'.format(failed))
+        logger.info('Successful produce response for topic {0}. Succeeded: {1} Failed: {2}'.format(topic,
+                                                                                                   len(succeeded),
+                                                                                                   len(failed)))
+        logger.debug('Failed messages with offsets: {0}'.format(failed))
         self.client.registrar.emit('produce_success', topic, succeeded, failed)
 
     def _handle_produce_response(self, topic, response):
         # First, we check for a transport error
         if response.error:
-            logger.error('Transport error submitting batch to topic {}: {}'.format(topic, response.error))
+            logger.error('Transport error submitting batch to topic {0}: {1}'.format(topic, response.error))
             self.client.registrar.emit('transport_error', topic, response.error)
             for message in response.request._batch:
                 self._queue_message_for_retry(topic, message)
@@ -155,7 +155,7 @@ class AsyncProducer(object):
                     self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
 
     def _flush_topic(self, topic, reason):
-        logger.debug('Flushing topic {} (reason: {})'.format(topic, reason))
+        logger.debug('Flushing topic {0} (reason: {1})'.format(topic, reason))
         self.client.registrar.emit('flush_topic', topic, reason)
         queue = self.client.message_queues[topic]
         for batch in self._message_batches_from_queue(queue):
@@ -177,7 +177,7 @@ class AsyncProducer(object):
         # We need to take manual control of the event loop now, so
         # we stop the timers in order to not fight against them
         for topic in self.flush_timers:
-            logger.debug('Shutdown: removing flush timer for topic {}'.format(topic))
+            logger.debug('Shutdown: removing flush timer for topic {0}'.format(topic))
             IOLoop.current().remove_timeout(self.flush_timers[topic])
 
         # Last-ditch send attempts on remaining messages. These will use
@@ -188,7 +188,7 @@ class AsyncProducer(object):
             if not queue.empty():
                 IOLoop.current().add_callback(self._flush_topic, topic, FlushReason.SHUTDOWN)
 
-        logger.debug('Shutdown: waiting {} seconds for in-flight requests to return'.format(self.client.shutdown_timeout_seconds))
+        logger.debug('Shutdown: waiting {0} seconds for in-flight requests to return'.format(self.client.shutdown_timeout_seconds))
 
         # We issue this step in a separate callback to get around a small timing issue
         # with sending out all these requests before shutdown. If you imagine that the

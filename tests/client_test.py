@@ -32,7 +32,7 @@ class TestClient(TestCase):
         expected_message = Message('test_driver', self.test_value, None, None, 0, 1)
 
         self.assertEqual(self.client.schema_cache['value']['test_driver'], self.test_schema)
-        self.assertIsNone(self.client.schema_cache['key'].get('test_driver'))
+        self.assertEqual(None, self.client.schema_cache['key'].get('test_driver'))
         self.assertEqual(1, self.client.message_queues['test_driver'].qsize())
         self.client.mock_for('produce').assert_called_once_with(expected_message)
         self.callback_mock.assert_called_once_with(self.client.producer.evaluate_queue,
@@ -41,8 +41,8 @@ class TestClient(TestCase):
 
     def test_produce_raises_in_shutdown(self):
         self.client.shutdown(block=True)
-        with self.assertRaises(KafkaRESTShutdownException):
-            self.client.produce('test_driver', self.test_value, self.test_schema)
+        self.assertRaises(KafkaRESTShutdownException, self.client.produce,
+                          'test_driver', self.test_value, self.test_schema)
 
     def test_produce_with_full_queue(self):
         self.client.message_queues['test_driver'] = Queue(maxsize=1)
@@ -58,7 +58,7 @@ class TestClient(TestCase):
 
     def test_shutdown(self):
         self.client.shutdown()
-        self.callback_mock.assert_called_once_with(self.client.producer.start_shutdown)
+        self.callback_mock.assert_any_call(self.client.producer.start_shutdown)
 
     def test_shutdown_blocking(self):
         self.client.shutdown(block=True)

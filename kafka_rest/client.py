@@ -56,7 +56,7 @@ class KafkaRESTClient(object):
 
         self.registrar.emit('client.init', self)
 
-        logger.debug('Kafka REST async client initialized for {}:{}'.format(self.host, self.port))
+        logger.debug('Kafka REST async client initialized for {0}:{1}'.format(self.host, self.port))
 
     def produce(self, topic, value, value_schema, key=None, key_schema=None, partition=None):
         """Place this message on the appropriate topic queue for asynchronous
@@ -74,10 +74,10 @@ class KafkaRESTClient(object):
         # messages and should still be consistent and avoid concurrency issues.
         # N.B. This all assumes the schema for a topic does not change during a process's lifetime.
         if topic not in self.schema_cache['value']:
-            logger.debug('Storing initial value schema for topic {} in schema cache: {}'.format(topic, value_schema))
+            logger.debug('Storing initial value schema for topic {0} in schema cache: {1}'.format(topic, value_schema))
             self.schema_cache['value'][topic] = value_schema
         if key_schema and topic not in self.schema_cache['key']:
-            logger.debug('Storing initial key schema for topic {} in schema cache: {}'.format(topic, key_schema))
+            logger.debug('Storing initial key schema for topic {0} in schema cache: {1}'.format(topic, key_schema))
             self.schema_cache['key'][topic] = key_schema
 
         queue = self.message_queues[topic]
@@ -85,7 +85,7 @@ class KafkaRESTClient(object):
         try:
             queue.put_nowait(message)
         except Full:
-            logger.critical('Primary event queue is full for topic {}, message {} will be dropped'.format(topic, message))
+            logger.critical('Primary event queue is full for topic {0}, message {1} will be dropped'.format(topic, message))
             self.registrar.emit('drop_message', topic, message, DropReason.PRIMARY_QUEUE_FULL)
         else:
             self.registrar.emit('produce', message)
