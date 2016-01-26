@@ -10,7 +10,7 @@ ERROR_CODES = {
     50101: 'Only SSL endpoints found, but SSL not supported for invoked API'
 }
 
-RETRIABLE_ERROR_CODES = {50001, 50002, 50003}
+RETRIABLE_ERROR_CODES = set([50001, 50002, 50003])
 
 def request_for_batch(host, port, connect_timeout, request_timeout,
                       schema_cache, topic, batch):
