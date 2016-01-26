@@ -37,7 +37,8 @@ class TestProducer(TestCase):
         m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)
         m2 = Message('test_driver', {'val': 2}, None, None, 0, 1)
         queue = self.client.message_queues['test_driver']
-        map(queue.put, [m1, m2])
+        for m in [m1, m2]:
+            queue.put(m)
 
         result = list(self.producer._message_batches_from_queue(queue))
         self.assertEqual(len(result), 1)
@@ -48,7 +49,8 @@ class TestProducer(TestCase):
         m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)
         m2 = Message('test_driver', {'val': 2}, None, None, 0, 1)
         queue = self.client.message_queues['test_driver']
-        map(queue.put, [m1, m2])
+        for m in [m1, m2]:
+            queue.put(m)
 
         result = list(self.producer._message_batches_from_queue(queue))
         self.assertEqual(len(result), 2)
@@ -56,10 +58,11 @@ class TestProducer(TestCase):
         self.assertEqual(result[1], [m2])
 
     def test_message_batches_from_retry_queue(self):
-        m1 = Message('test_driver', {'val': 1}, None, None, sys.maxint, 1)
+        m1 = Message('test_driver', {'val': 1}, None, None, sys.maxsize, 1)
         m2 = Message('test_driver', {'val': 2}, None, None, 0, 1)
         queue = self.client.retry_queues['test_driver']
-        map(queue.put, [m1, m2])
+        for m in [m1, m2]:
+            queue.put(m)
 
         result = list(self.producer._message_batches_from_queue(queue))
         self.assertEqual(len(result), 1)
