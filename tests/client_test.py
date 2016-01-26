@@ -58,7 +58,7 @@ class TestClient(TestCase):
 
     def test_shutdown(self):
         self.client.shutdown()
-        self.callback_mock.assert_called_once_with(self.client.producer.start_shutdown)
+        self.callback_mock.assert_any_call(self.client.producer.start_shutdown)
 
     def test_shutdown_blocking(self):
         self.client.shutdown(block=True)
