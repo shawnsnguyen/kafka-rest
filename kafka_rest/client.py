@@ -1,6 +1,9 @@
 import logging
 from threading import Thread
-from Queue import Queue, PriorityQueue, Full
+try:
+    from queue import Queue, PriorityQueue, Full
+except ImportError:
+    from Queue import Queue, PriorityQueue, Full
 from collections import defaultdict, namedtuple
 
 from tornado.ioloop import IOLoop

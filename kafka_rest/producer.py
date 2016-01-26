@@ -2,7 +2,10 @@ import logging
 import json
 from functools import partial
 import time
-from Queue import Full, Empty
+try:
+    from queue import Full, Empty
+except ImportError:
+    from Queue import Full, Empty
 from collections import namedtuple
 
 from tornado.ioloop import IOLoop, PeriodicCallback
