@@ -141,6 +141,7 @@ class AsyncProducer(object):
             self.client.registrar.emit('transport_error', topic, response.error)
             for message in response.request._batch:
                 self._queue_message_for_retry(topic, message)
+            return
 
         # We should have gotten a well-formed response back from the
         # proxy if we got this far
