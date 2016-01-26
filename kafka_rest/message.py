@@ -13,13 +13,13 @@ class Message(namedtuple('Message', ['topic', 'value', 'key', 'partition', 'retr
     def __lt__(self, other):
         return self.retry_after_time < other.retry_after_time
 
-    def __lte__(self, other):
+    def __le__(self, other):
         return self.retry_after_time <= other.retry_after_time
 
     def __gt__(self, other):
         return self.retry_after_time > other.retry_after_time
 
-    def __gte__(self, other):
+    def __ge__(self, other):
         return self.retry_after_time >= other.retry_after_time
 
     def can_retry(self, client):
