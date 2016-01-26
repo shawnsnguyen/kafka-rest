@@ -5,11 +5,15 @@ ERROR_CODES = {
     40401: 'Topic not found',
     40402: 'Partition not found',
     50001: 'Zookeeper error',
-    50002: 'Non-retriable Kafka error',
+    50002: 'Kafka error',
     50003: 'Retriable Kafka error',
     50101: 'Only SSL endpoints found, but SSL not supported for invoked API'
 }
 
+# Confluent didn't seem very confident that 50002 would
+# always be non-retriable when I asked them about it,
+# so we'll keep it as retriable for now to be safe.
+# See https://github.com/confluentinc/kafka-rest/issues/147
 RETRIABLE_ERROR_CODES = set([50001, 50002, 50003])
 
 def request_for_batch(host, port, connect_timeout, request_timeout,

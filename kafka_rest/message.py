@@ -22,6 +22,15 @@ class Message(namedtuple('Message', ['topic', 'value', 'key', 'partition', 'retr
     def __ge__(self, other):
         return self.retry_after_time >= other.retry_after_time
 
+    # Defined for the sake of tests
+    def true_equals(self, other):
+        if not isinstance(other, Message):
+            return False
+        for idx in range(len(self)):
+            if self[idx] != other[idx]:
+                return False
+        return True
+
     def can_retry(self, client):
         return self.attempt_number < client.retry_max_attempts
 
