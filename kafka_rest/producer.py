@@ -108,7 +108,7 @@ class AsyncProducer(object):
         if not isinstance(self.client.schema_cache['value'][topic], int):
             logger.debug('Storing value schema ID of {0} for topic {1}'.format(response_body['value_schema_id'], topic))
             self.client.schema_cache['value'][topic] = response_body['value_schema_id']
-        if not isinstance(self.client.schema_cache['key'].get(topic), int):
+        if response_body.get('key_schema_id') and not isinstance(self.client.schema_cache['key'].get(topic), int):
             logger.debug('Storing key schema ID of {0} for topic {1}'.format(response_body['key_schema_id'], topic))
             self.client.schema_cache['key'][topic] = response_body['key_schema_id']
 
