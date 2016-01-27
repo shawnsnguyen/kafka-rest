@@ -57,8 +57,6 @@ class KafkaRESTClient(object):
         self.producer_thread.start()
         logger.debug('Started producer background thread')
 
-        self.registrar.emit('client.init', self)
-
         logger.debug('Kafka REST async client initialized for {0}:{1}'.format(self.host, self.port))
 
     def produce(self, topic, value, value_schema, key=None, key_schema=None, partition=None):
