@@ -44,9 +44,7 @@ class KafkaRESTClient(object):
         self.registrar = EventRegistrar()
         self.message_queues = defaultdict(lambda: Queue(maxsize=max_queue_size_per_topic))
         self.retry_queues = defaultdict(lambda: PriorityQueue(maxsize=max_queue_size_per_topic))
-        # Schema cache is carefully accessed by both threads, make sure to read the detailed
-        # comments about it where it's used before changing anything
-        self.schema_cache = {'value': {}, 'key': {}}
+        self.schema_cache = defaultdict(dict)
         self.io_loop = IOLoop()
 
         self.producer = AsyncProducer(self)
@@ -65,21 +63,12 @@ class KafkaRESTClient(object):
         if self.in_shutdown:
             raise KafkaRESTShutdownException('Client is in shutdown state, new events cannot be produced')
 
-        # This piece is a bit clever. Because we do not do anything to seed the schemas
-        # for a topic before the first produce call, we know that the main thread will be the
-        # first to touch the schema cache key for a given topic. Therefore, if and only if the key
-        # is not present, it is safe for the main thread to write the full schema value to the cache.
-        # After this initial write, only the producer thread should overwrite this key,
-        # and it will only do that to replace the full schema with the ID it gets back
-        # from its first request using this schema. This allows us to avoid queuing the schema with all
-        # messages and should still be consistent and avoid concurrency issues.
-        # N.B. This all assumes the schema for a topic does not change during a process's lifetime.
-        if topic not in self.schema_cache['value']:
+        if self.schema_cache[topic].get('value') is None:
             logger.debug('Storing initial value schema for topic {0} in schema cache: {1}'.format(topic, value_schema))
-            self.schema_cache['value'][topic] = value_schema
-        if key_schema and topic not in self.schema_cache['key']:
+            self.schema_cache[topic]['value'] = value_schema
+        if key_schema and self.schema_cache[topic].get('key') is None:
             logger.debug('Storing initial key schema for topic {0} in schema cache: {1}'.format(topic, key_schema))
-            self.schema_cache['key'][topic] = key_schema
+            self.schema_cache[topic]['key'] = key_schema
 
         queue = self.message_queues[topic]
         message = Message(topic, value, key, partition, 0, 1)

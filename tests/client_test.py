@@ -34,8 +34,8 @@ class TestClient(TestCase):
         self.client.produce('test_driver', self.test_value, self.test_schema)
         expected_message = Message('test_driver', self.test_value, None, None, 0, 1)
 
-        self.assertEqual(self.client.schema_cache['value']['test_driver'], self.test_schema)
-        self.assertEqual(None, self.client.schema_cache['key'].get('test_driver'))
+        self.assertEqual(self.client.schema_cache['test_driver']['value'], self.test_schema)
+        self.assertEqual(None, self.client.schema_cache['test_driver'].get('key'))
         self.assertEqual(1, self.client.message_queues['test_driver'].qsize())
         self.client.mock_for('produce').assert_called_once_with(expected_message)
         self.callback_mock.assert_called_once_with(self.client.producer.evaluate_queue,
