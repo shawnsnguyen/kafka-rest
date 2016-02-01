@@ -26,8 +26,8 @@ class TestProducer(TestCase):
         }
         self.test_value = {'val': 1}
 
-        self.client.schema_cache['value']['test_driver'] = 1
-        self.client.schema_cache['key']['test_driver'] = 2
+        self.client.schema_cache['test_driver']['value-id'] = 1
+        self.client.schema_cache['test_driver']['key-id'] = 2
 
     def tearDown(self):
         if not self.client.in_shutdown:
@@ -128,13 +128,13 @@ class TestProducer(TestCase):
                                                                      'max_retries_exceeded')
 
     def test_handle_produce_success_stores_value_schema_id(self):
-        self.client.schema_cache['value']['test_driver'] = None
+        self.client.schema_cache['test_driver']['value-id'] = None
         body = {'offsets': [], 'value_schema_id': 5, 'key_schema_id': 2}
 
         self.producer._handle_produce_success('test_driver', None, body)
 
-        self.assertEqual(self.client.schema_cache['value']['test_driver'], 5)
-        self.assertEqual(self.client.schema_cache['key']['test_driver'], 2)
+        self.assertEqual(self.client.schema_cache['test_driver']['value-id'], 5)
+        self.assertEqual(self.client.schema_cache['test_driver']['key-id'], 2)
 
     def test_handle_produce_success_simple_success(self):
         m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)

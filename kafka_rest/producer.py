@@ -105,12 +105,12 @@ class AsyncProducer(object):
 
     def _handle_produce_success(self, topic, response, response_body):
         # Store schema IDs if we haven't already
-        if not isinstance(self.client.schema_cache['value'][topic], int):
+        if self.client.schema_cache[topic].get('value-id') is None:
             logger.debug('Storing value schema ID of {0} for topic {1}'.format(response_body['value_schema_id'], topic))
-            self.client.schema_cache['value'][topic] = response_body['value_schema_id']
-        if response_body.get('key_schema_id') and not isinstance(self.client.schema_cache['key'].get(topic), int):
+            self.client.schema_cache[topic]['value-id'] = response_body['value_schema_id']
+        if response_body.get('key_schema_id') and self.client.schema_cache[topic].get('key-id') is None:
             logger.debug('Storing key schema ID of {0} for topic {1}'.format(response_body['key_schema_id'], topic))
-            self.client.schema_cache['key'][topic] = response_body['key_schema_id']
+            self.client.schema_cache[topic]['key-id'] = response_body['key_schema_id']
 
         # Individual requests could still have failed, need to check
         # each response object's error code
