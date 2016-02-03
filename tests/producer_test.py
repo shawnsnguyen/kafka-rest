@@ -29,6 +29,8 @@ class TestProducer(TestCase):
         self.client.schema_cache['test_driver']['value-id'] = 1
         self.client.schema_cache['test_driver']['key-id'] = 2
 
+        self.producer.inflight_requests = {1: None}
+
     def tearDown(self):
         if not self.client.in_shutdown:
             self.client.shutdown(block=True)
@@ -73,11 +75,12 @@ class TestProducer(TestCase):
         m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)
         m2 = Message('test_driver', {'val': 2}, None, None, 0, 1)
         batch = [m1, m2]
+        fake_request._id = 1
 
         self.producer._send_batch_produce_request('test_driver', batch)
         call_args = fake_request.mock_calls[0][1]
 
-        self.assertEqual(call_args[2], 60)
+        self.assertEqual(call_args[2], 10)
         self.assertEqual(call_args[3], 60)
         self.assertEqual(call_args[5], 'test_driver')
         self.assertEqual(call_args[6], batch)
@@ -87,6 +90,7 @@ class TestProducer(TestCase):
         m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)
         m2 = Message('test_driver', {'val': 2}, None, None, 0, 1)
         batch = [m1, m2]
+        fake_request._id = 1
 
         self.client.in_shutdown = True
         self.producer._send_batch_produce_request('test_driver', batch)
@@ -160,6 +164,7 @@ class TestProducer(TestCase):
         response = Mock()
         response.request = Mock()
         response.request._batch = [m1, m2, m3]
+        response.request._id = 1
         body = {'offsets': offsets,
                 'value_schema_id': 1,
                 'key_schema_id': 2}
@@ -183,6 +188,7 @@ class TestProducer(TestCase):
         response.error = object()
         response.request = Mock()
         response.request._batch = [m1, m2]
+        response.request._id = 1
 
         self.producer._handle_produce_response('test_driver', response)
 
@@ -201,6 +207,7 @@ class TestProducer(TestCase):
         response.error = False
         response.request = Mock()
         response.request._batch = [m1, m2]
+        response.request._id = 1
         body = {'offsets': [{}, {}],
                 'value_schema_id': 1,
                 'key_schema_id': 2}
@@ -222,6 +229,7 @@ class TestProducer(TestCase):
         response.error = False
         response.request = Mock()
         response.request._batch = [m1, m2]
+        response.request._id = 1
         body = {'offsets': [{}, {}],
                 'value_schema_id': 1,
                 'key_schema_id': 2,
@@ -245,6 +253,7 @@ class TestProducer(TestCase):
         response.error = False
         response.request = Mock()
         response.request._batch = [m1, m2]
+        response.request._id = 1
         body = {'offsets': [{}, {}],
                 'value_schema_id': 1,
                 'key_schema_id': 2,

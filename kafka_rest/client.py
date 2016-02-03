@@ -19,7 +19,7 @@ logger = logging.getLogger('kafka_rest.client')
 class KafkaRESTClient(object):
     def __init__(self, host, port, http_max_clients=10, max_queue_size_per_topic=5000,
                  flush_length_threshold=20, flush_time_threshold_seconds=20,
-                 flush_max_batch_size=50, connect_timeout_seconds=60,
+                 flush_max_batch_size=50, connect_timeout_seconds=10,
                  request_timeout_seconds=60, retry_base_seconds=2,
                  retry_max_attempts=10, retry_period_seconds=15,
                  transport_circuit_breaker_trip_threshold=10,

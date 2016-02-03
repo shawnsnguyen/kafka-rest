@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from tornado.httpclient import HTTPRequest
 from tornado.escape import json_encode
 import avro.schema
@@ -61,5 +63,10 @@ def request_for_batch(host, port, connect_timeout, request_timeout,
     # so it is available to us when we handle the response. This is necessary
     # because individual messages can fail even if the overall request is
     # successful.
+    request._topic = topic
     request._batch = batch
+
+    # We also stick a unique ID on our request so we can keep track of
+    # in-flight requests and the events contained in them
+    request._id = uuid4()
     return request

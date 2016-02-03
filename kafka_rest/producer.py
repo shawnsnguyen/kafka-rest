@@ -23,6 +23,7 @@ class AsyncProducer(object):
         self.client = client
         self.flush_timers = {}
         self.retry_timer = None
+        self.inflight_requests = {}
         self.http_client = AsyncHTTPClient(io_loop=self.client.io_loop,
                                            max_clients=self.client.http_max_clients)
 
@@ -89,6 +90,7 @@ class AsyncProducer(object):
                                     self.client.schema_cache, topic, batch)
         logger.info('Sending {0} events to topic {1}'.format(len(batch), topic))
         self.client.registrar.emit('send_request', topic, batch)
+        self.inflight_requests[request._id] = request
         self.http_client.fetch(request,
                                callback=partial(self._handle_produce_response, topic),
                                raise_error=False)
@@ -140,6 +142,8 @@ class AsyncProducer(object):
         self.client.registrar.emit('produce_success', topic, succeeded, failed)
 
     def _handle_produce_response(self, topic, response):
+        del self.inflight_requests[response.request._id]
+
         # First, we check for a transport error
         if response.error:
             logger.error('Transport error submitting batch to topic {0}: {1}'.format(topic, response.error))
@@ -223,6 +227,9 @@ class AsyncProducer(object):
         # fire off a specialized event in this case to give the
         # application code a chance to do something with this data all
         # at once.
-        self.client.registrar.emit('shutdown', self.client.message_queues, self.client.retry_queues)
+        self.client.registrar.emit('shutdown',
+                                   self.client.message_queues,
+                                   self.client.retry_queues,
+                                   self.inflight_requests)
         IOLoop.current().stop()
         logger.debug('Shutdown: producer issued stop command to IOLoop')
