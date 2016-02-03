@@ -37,3 +37,14 @@ class TestCircuitBreaker(TestCase):
         self.assertTrue(self.breaker.tripped)
         time.sleep(1)
         self.assertFalse(self.breaker.tripped)
+
+    def test_reset_after_init(self):
+        self.breaker.reset()
+        self.assertFalse(self.breaker.tripped)
+
+    def test_reset_untrips(self):
+        self.breaker.record_failure(2)
+        self.assertTrue(self.breaker.tripped)
+        self.breaker.reset()
+        self.assertEqual(0, self.breaker.failure_count)
+        self.assertFalse(self.breaker.tripped)
