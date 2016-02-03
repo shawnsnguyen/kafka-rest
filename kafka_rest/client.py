@@ -9,6 +9,7 @@ from collections import defaultdict, namedtuple
 from tornado.ioloop import IOLoop
 
 from .events import EventRegistrar, DropReason
+from .circuit_breaker import CircuitBreaker
 from .producer import AsyncProducer
 from .message import Message
 from .exceptions import KafkaRESTShutdownException
@@ -16,11 +17,13 @@ from .exceptions import KafkaRESTShutdownException
 logger = logging.getLogger('kafka_rest.client')
 
 class KafkaRESTClient(object):
-    def __init__(self, host, port, http_max_clients=10, max_queue_size_per_topic=10000,
+    def __init__(self, host, port, http_max_clients=10, max_queue_size_per_topic=5000,
                  flush_length_threshold=20, flush_time_threshold_seconds=20,
                  flush_max_batch_size=50, connect_timeout_seconds=60,
                  request_timeout_seconds=60, retry_base_seconds=2,
                  retry_max_attempts=10, retry_period_seconds=15,
+                 transport_circuit_breaker_trip_threshold=10,
+                 transport_circuit_breaker_trip_duration_seconds=300,
                  shutdown_timeout_seconds=2):
         self.host = host
         self.port = port
@@ -35,6 +38,13 @@ class KafkaRESTClient(object):
         # Includes the original send as an attempt, so set to 1 to disable retry
         self.retry_max_attempts = retry_max_attempts
         self.retry_period_seconds = retry_period_seconds
+        # Circuit breaker prevents thrashing if we receive multiple transport
+        # errors in a row, since this usually means we are experiencing some
+        # sort of network problem and other requests are very likely to fail.
+        # When this triggers, we wait a short duration before clearing the
+        # breaker and attempting any further network operations.
+        self.transport_circuit_breaker_trip_threshold = transport_circuit_breaker_trip_threshold
+        self.transport_circuit_breaker_trip_duration_seconds = transport_circuit_breaker_trip_duration_seconds
         # On shutdown, last-ditch flush attempts are given this
         # request timeout after which they are considered failed
         self.shutdown_timeout_seconds = shutdown_timeout_seconds
@@ -42,6 +52,8 @@ class KafkaRESTClient(object):
         self.in_shutdown = False
 
         self.registrar = EventRegistrar()
+        self.transport_circuit_breaker = CircuitBreaker(self.transport_circuit_breaker_trip_threshold,
+                                                        self.transport_circuit_breaker_trip_duration_seconds)
         self.message_queues = defaultdict(lambda: Queue(maxsize=max_queue_size_per_topic))
         self.retry_queues = defaultdict(lambda: PriorityQueue(maxsize=max_queue_size_per_topic))
         self.schema_cache = defaultdict(dict)

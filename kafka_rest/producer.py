@@ -55,6 +55,11 @@ class AsyncProducer(object):
     def _start_retries(self):
         """Go through all the retry queues and schedule produce callbacks
         for all messages that are due to be retried."""
+        if self.client.transport_circuit_breaker.tripped:
+            logger.debug('Transport circuit breaker is tripped, skipping retry pass')
+            self.client.registrar.emit('circuit_breaker.retries')
+            return
+
         logger.debug('Checking retry queues for events to retry')
         for topic, retry_queue in self.client.retry_queues.items():
             for batch in self._message_batches_from_queue(retry_queue):
@@ -138,6 +143,7 @@ class AsyncProducer(object):
         # First, we check for a transport error
         if response.error:
             logger.error('Transport error submitting batch to topic {0}: {1}'.format(topic, response.error))
+            self.client.transport_circuit_breaker.record_failure()
             self.client.registrar.emit('transport_error', topic, response.error)
             for message in response.request._batch:
                 self._queue_message_for_retry(topic, message)
@@ -145,6 +151,7 @@ class AsyncProducer(object):
 
         # We should have gotten a well-formed response back from the
         # proxy if we got this far
+        self.client.transport_circuit_breaker.reset()
         response_body = json_decode(response.body)
         error_code, error_message = response_body.get('error_code'), response_body.get('message')
 
@@ -159,11 +166,15 @@ class AsyncProducer(object):
                     self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
 
     def _flush_topic(self, topic, reason):
-        logger.debug('Flushing topic {0} (reason: {1})'.format(topic, reason))
-        self.client.registrar.emit('flush_topic', topic, reason)
-        queue = self.client.message_queues[topic]
-        for batch in self._message_batches_from_queue(queue):
-            IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
+        if self.client.transport_circuit_breaker.tripped:
+            logger.debug('Transport circuit breaker is tripped, skipping flush topic')
+            self.client.registrar.emit('circuit_breaker.flush_topic', topic, reason)
+        else:
+            logger.debug('Flushing topic {0} (reason: {1})'.format(topic, reason))
+            self.client.registrar.emit('flush_topic', topic, reason)
+            queue = self.client.message_queues[topic]
+            for batch in self._message_batches_from_queue(queue):
+                IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
         if not self.client.in_shutdown:
             self._reset_flush_timer(topic)
 
@@ -188,6 +199,7 @@ class AsyncProducer(object):
         # Last-ditch send attempts on remaining messages. These will use
         # shorter shutdown timeouts on the request in order to finish
         # by the time we invoke _finish_shutdown
+        self.client.transport_circuit_breaker.reset()
         IOLoop.current().add_callback(self._start_retries)
         for topic, queue in self.client.message_queues.items():
             if not queue.empty():
