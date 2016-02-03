@@ -180,6 +180,7 @@ class AsyncProducer(object):
         to return."""
         # We need to take manual control of the event loop now, so
         # we stop the timers in order to not fight against them
+        self.retry_timer.stop()
         for topic in self.flush_timers:
             logger.debug('Shutdown: removing flush timer for topic {0}'.format(topic))
             IOLoop.current().remove_timeout(self.flush_timers[topic])
