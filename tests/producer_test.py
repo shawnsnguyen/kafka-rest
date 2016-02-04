@@ -18,9 +18,9 @@ class TestProducer(TestCase):
         self.callback_mock = Mock(wraps=self.client.io_loop.add_callback)
         self.client.io_loop.add_callback = self.callback_mock
 
-        self.ioloop_patch = patch('kafka_rest.producer.IOLoop.current')
-        self.ioloop_mock = self.ioloop_patch.start()
-        self.ioloop_mock.return_value = self.client.io_loop
+        self.io_loop_patch = patch('kafka_rest.producer.IOLoop.current')
+        self.io_loop_mock = self.io_loop_patch.start()
+        self.io_loop_mock.return_value = self.client.io_loop
 
         self.test_schema = {
             'type': 'record',
@@ -39,7 +39,7 @@ class TestProducer(TestCase):
     def tearDown(self):
         if not self.client.in_shutdown:
             self.client.shutdown(block=False)
-        self.ioloop_patch.stop()
+        self.io_loop_patch.stop()
 
     def test_message_batches_from_queue_single_batch(self):
         m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)
