@@ -1,8 +1,10 @@
 import types
 from collections import defaultdict, namedtuple
 from uuid import uuid4
+import time
 
 from mock import Mock, patch
+from tornado.httpclient import AsyncHTTPClient
 
 from kafka_rest.client import KafkaRESTClient
 
@@ -32,6 +34,8 @@ class MockClient(KafkaRESTClient):
         self.io_loop_mock = self.io_loop_patch.start()
         self.io_loop_mock.return_value = self.io_loop
 
+        self.producer.http_client = AsyncHTTPClient(io_loop=self.io_loop)
+
     def teardown_mock_io_loop(self):
         self.io_loop_patch.stop()
 
@@ -47,6 +51,9 @@ class TestingIOLoop(object):
         self.callbacks = []
         self.laters = []
 
+    def time(self):
+        return time.time()
+
     def add_callback(self, cb, *args, **kwargs):
         self.callbacks.append(Callback(cb, args, kwargs))
 
@@ -54,6 +61,9 @@ class TestingIOLoop(object):
         handle = uuid4()
         self.laters.append(Later(handle, seconds, Callback(cb, args, kwargs)))
         return handle
+
+    def add_timeout(self, deadline, cb, *args, **kwargs):
+        return self.call_later(self.time() - deadline, cb, *args, **kwargs)
 
     def remove_timeout(self, handle):
         self.laters = filter(lambda later: later.handle != handle, self.laters)
@@ -73,9 +83,13 @@ class TestingIOLoop(object):
             self.callbacks[0].run()
             del self.callbacks[0]
 
+    def pop_callback(self):
+        if self.callbacks:
+            return self.callbacks.pop(0)
+
     def pop_later(self):
         if self.laters:
-            del self.laters[0]
+            return self.laters.pop(0)
 
     @property
     def finished(self):
