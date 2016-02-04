@@ -127,7 +127,7 @@ class AsyncProducer(object):
             if offset.get('error_code') == 1: # Non-retriable Kafka exception
                 failed.append((message, offset))
                 logger.critical('Got non-retriable Kafka exception "{0}" for message {1}'.format(offset.get('message'),
-                                                                                               response.request._batch[idx]))
+                                                                                                 response.request._batch[idx]))
                 self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
             elif offset.get('error_code') == 2: # Retriable Kafka exception
                 failed.append((message, offset))

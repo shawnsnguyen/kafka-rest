@@ -28,7 +28,7 @@ class TestClient(TestCase):
 
     def tearDown(self):
         if not self.client.in_shutdown:
-            self.client.shutdown(block=True)
+            self.client.shutdown(block=False)
 
     def test_initial_produce(self):
         self.client.produce('test_driver', self.test_value, self.test_schema)
