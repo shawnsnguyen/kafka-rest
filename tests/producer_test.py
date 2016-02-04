@@ -9,6 +9,7 @@ from mock import Mock, patch, call
 
 from .fixtures import MockClient
 from kafka_rest.message import Message
+from kafka_rest.events import FlushReason
 
 class TestProducer(TestCase):
     def setUp(self):
@@ -16,6 +17,10 @@ class TestProducer(TestCase):
         self.producer = self.client.producer
         self.callback_mock = Mock(wraps=self.client.io_loop.add_callback)
         self.client.io_loop.add_callback = self.callback_mock
+
+        self.ioloop_patch = patch('kafka_rest.producer.IOLoop.current')
+        self.ioloop_mock = self.ioloop_patch.start()
+        self.ioloop_mock.return_value = self.client.io_loop
 
         self.test_schema = {
             'type': 'record',
@@ -33,7 +38,8 @@ class TestProducer(TestCase):
 
     def tearDown(self):
         if not self.client.in_shutdown:
-            self.client.shutdown(block=True)
+            self.client.shutdown(block=False)
+        self.ioloop_patch.stop()
 
     def test_message_batches_from_queue_single_batch(self):
         m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)
@@ -266,3 +272,61 @@ class TestProducer(TestCase):
         calls = [call('test_driver', m1, 'nonretriable'),
                  call('test_driver', m2, 'nonretriable')]
         self.client.mock_for('drop_message').assert_has_calls(calls)
+
+    @patch('kafka_rest.producer.AsyncProducer._reset_flush_timer')
+    def test_flush_topic_resets_flush_timer_normally(self, fake_flush_timer):
+        self.producer._flush_topic('test_driver', 'testing')
+        fake_flush_timer.assert_called_once_with('test_driver')
+
+    @patch('kafka_rest.producer.AsyncProducer._reset_flush_timer')
+    def test_flush_topic_resets_flush_timer_under_circuit_breaker(self, fake_flush_timer):
+        self.client.transport_circuit_breaker.failure_count = sys.maxsize
+        self.producer._flush_topic('test_driver', 'testing')
+        fake_flush_timer.assert_called_once_with('test_driver')
+
+    @patch('kafka_rest.producer.AsyncProducer._reset_flush_timer')
+    def test_flush_topic_does_not_reset_flush_timer_in_shutdown(self, fake_flush_timer):
+        self.client.shutdown(block=False)
+        self.producer._flush_topic('test_driver', 'testing')
+        self.assertFalse(fake_flush_timer.called)
+
+    def test_flush_topic_sends_batches(self):
+        self.client.flush_max_batch_size = 1
+        m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)
+        m2 = Message('test_driver', {'val': 2}, None, None, 0, 1)
+        queue = self.client.message_queues['test_driver']
+        for m in [m1, m2]:
+            queue.put(m)
+
+        self.producer._flush_topic('test_driver', 'testing')
+
+        self.client.mock_for('flush_topic').assert_called_with('test_driver', 'testing')
+        self.callback_mock.assert_has_calls([call(self.producer._send_batch_produce_request, 'test_driver', [m1]),
+                                             call(self.producer._send_batch_produce_request, 'test_driver', [m2])])
+
+    @patch('kafka_rest.producer.AsyncProducer._reset_flush_timer')
+    def test_evaluate_queue_on_empty(self, fake_flush_timer):
+        self.producer.evaluate_queue('test_driver', self.client.message_queues['test_driver'])
+        fake_flush_timer.assert_called_with('test_driver')
+        fake_flush_timer.reset_mock()
+
+    @patch('kafka_rest.producer.AsyncProducer._reset_flush_timer')
+    def test_evaluate_queue_on_empty_timer_set(self, fake_flush_timer):
+        self.producer.flush_timers['test_driver'] = None
+        self.producer.evaluate_queue('test_driver', self.client.message_queues['test_driver'])
+        self.assertFalse(fake_flush_timer.called)
+
+    @patch('kafka_rest.producer.AsyncProducer._reset_flush_timer')
+    @patch('kafka_rest.producer.AsyncProducer._flush_topic')
+    def test_evaluate_queue_on_length(self, fake_flush, fake_flush_timer):
+        self.client.flush_length_threshold = 1
+        m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)
+        m2 = Message('test_driver', {'val': 2}, None, None, 0, 1)
+        queue = self.client.message_queues['test_driver']
+        for m in [m1, m2]:
+            queue.put(m)
+
+        self.producer.evaluate_queue('test_driver', self.client.message_queues['test_driver'])
+
+        fake_flush.assert_called_with('test_driver', FlushReason.LENGTH)
+        self.assertFalse(fake_flush_timer.called)
