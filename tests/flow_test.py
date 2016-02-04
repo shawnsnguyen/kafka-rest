@@ -45,6 +45,6 @@ class TestFlow(TestCase):
                                   ('test_driver', 'time'),
                                   {}))
 
-        del self.io_loop.later[0]
+        self.io_loop.pop_later()
 
         self.assertTrue(self.io_loop.finished)

@@ -45,18 +45,18 @@ class MockClient(KafkaRESTClient):
 class TestingIOLoop(object):
     def __init__(self):
         self.callbacks = []
-        self.later = []
+        self.laters = []
 
     def add_callback(self, cb, *args, **kwargs):
         self.callbacks.append(Callback(cb, args, kwargs))
 
     def call_later(self, seconds, cb, *args, **kwargs):
         handle = uuid4()
-        self.later.append(Later(handle, seconds, Callback(cb, args, kwargs)))
+        self.laters.append(Later(handle, seconds, Callback(cb, args, kwargs)))
         return handle
 
     def remove_timeout(self, handle):
-        self.later = filter(lambda later: later.handle != handle, self.later)
+        self.laters = filter(lambda later: later.handle != handle, self.laters)
 
     @property
     def next_callback(self):
@@ -65,14 +65,18 @@ class TestingIOLoop(object):
 
     @property
     def next_later(self):
-        if self.later:
-            return self.later[0]
+        if self.laters:
+            return self.laters[0]
 
     def run_next(self):
         if self.callbacks:
             self.callbacks[0].run()
             del self.callbacks[0]
 
+    def pop_later(self):
+        if self.laters:
+            del self.laters[0]
+
     @property
     def finished(self):
-        return not bool(self.callbacks or self.later)
+        return not bool(self.callbacks or self.laters)
