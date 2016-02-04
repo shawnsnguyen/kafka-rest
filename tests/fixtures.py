@@ -68,7 +68,7 @@ class TestingIOLoop(object):
         if self.laters:
             return self.laters[0]
 
-    def run_next(self):
+    def run_next_callback(self):
         if self.callbacks:
             self.callbacks[0].run()
             del self.callbacks[0]

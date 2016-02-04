@@ -32,12 +32,12 @@ class TestFlow(TestCase):
 
     def test_produce_through_evaluate_no_flush(self):
         self.client.produce('test_driver', self.test_value, self.test_schema)
+
         self.assertEqual(self.io_loop.next_callback,
                          Callback(self.producer.evaluate_queue,
                                   ('test_driver', self.client.message_queues['test_driver']),
                                   {}))
-
-        self.io_loop.run_next()
+        self.io_loop.run_next_callback()
 
         self.assertEqual(self.io_loop.next_later.seconds, self.client.flush_time_threshold_seconds)
         self.assertEqual(self.io_loop.next_later.callback,
@@ -46,5 +46,4 @@ class TestFlow(TestCase):
                                   {}))
 
         self.io_loop.pop_later()
-
         self.assertTrue(self.io_loop.finished)
