@@ -35,3 +35,5 @@ class EventRegistrar(object):
             except Exception as e:
                 if event != 'event_handler_exception':
                     self.emit('event_handler_exception', event, e)
+                else:
+                    logger.exception('Handler for event_handler_exception threw an exception, will not process further')
