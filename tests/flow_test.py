@@ -44,3 +44,7 @@ class TestFlow(TestCase):
                          Callback(self.producer._flush_topic,
                                   ('test_driver', 'time'),
                                   {}))
+
+        del self.io_loop.later[0]
+
+        self.assertTrue(self.io_loop.finished)

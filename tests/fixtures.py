@@ -71,6 +71,7 @@ class TestingIOLoop(object):
     def run_next(self):
         if self.callbacks:
             self.callbacks[0].run()
+            del self.callbacks[0]
 
     @property
     def finished(self):
