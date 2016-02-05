@@ -124,16 +124,17 @@ class AsyncProducer(object):
         succeeded, failed = [], []
         for idx, offset in enumerate(response_body['offsets']):
             message = response.request._batch[idx]
-            if offset.get('error_code') == 1: # Non-retriable Kafka exception
-                failed.append((message, offset))
-                logger.critical('Got non-retriable Kafka exception "{0}" for message {1}'.format(offset.get('message'),
-                                                                                                 response.request._batch[idx]))
-                self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
-            elif offset.get('error_code') == 2: # Retriable Kafka exception
+            if offset.get('error_code') is None:
+                succeeded.append((message, offset))
+            elif offset.get('error_code') in RETRIABLE_ERROR_CODES:
                 failed.append((message, offset))
                 self._queue_message_for_retry(topic, message)
             else:
-                succeeded.append((message, offset))
+                failed.append((message, offset))
+                logger.critical('Got non-retriable error code ({0}: {1}) for message {2}'.format(offset.get('error_code'),
+                                                                                                 offset.get('message'),
+                                                                                                 response.request._batch[idx]))
+                self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
 
         logger.info('Successful produce response for topic {0}. Succeeded: {1} Failed: {2}'.format(topic,
                                                                                                    len(succeeded),

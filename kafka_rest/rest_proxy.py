@@ -6,6 +6,8 @@ import avro.schema
 from avro_json_serializer import AvroJsonSerializer
 
 ERROR_CODES = {
+    1:     'Non-retriable Kafka exception',
+    2:     'Retriable Kafka exception',
     40401: 'Topic not found',
     40402: 'Partition not found',
     50001: 'Zookeeper error',
@@ -18,7 +20,7 @@ ERROR_CODES = {
 # always be non-retriable when I asked them about it,
 # so we'll keep it as retriable for now to be safe.
 # See https://github.com/confluentinc/kafka-rest/issues/147
-RETRIABLE_ERROR_CODES = set([50001, 50002, 50003])
+RETRIABLE_ERROR_CODES = set([2, 50001, 50002, 50003])
 
 def _encode_payload(schema_cache, topic, batch):
     value_schema = avro.schema.make_avsc_object(schema_cache[topic]['value'], avro.schema.Names())
