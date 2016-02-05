@@ -10,8 +10,10 @@ import logging
 import uuid
 from collections import defaultdict
 import time
+import signal
 
 import requests
+from tornado.ioloop import PeriodicCallback
 
 from kafka_rest.client import KafkaRESTClient
 
@@ -23,7 +25,12 @@ TEST_SCHEMA = {
         {'name': 'val', 'type': 'int'}
     ]
 }
-NUM_EVENTS = 50
+NUM_EVENTS_PER_BATCH = 20
+SEND_INTERVAL_SECONDS = 5
+latest_event_num = 0
+
+# nonlocal keyword would be nice
+_first_interrupt, _stop = True, False
 
 RESULT_FILE = 'end_to_end_test.json'
 LOG_FILE = 'end_to_end_test.log'
@@ -31,8 +38,15 @@ LOG_FILE = 'end_to_end_test.log'
 logging.basicConfig(filename=LOG_FILE, level=logging.DEBUG)
 
 def _produce_events(client, topic):
-    for i in range(NUM_EVENTS):
-        client.produce(topic, {'val': i}, TEST_SCHEMA)
+    global latest_event_num
+    for i in range(NUM_EVENTS_PER_BATCH):
+        client.produce(topic, {'val': latest_event_num}, TEST_SCHEMA)
+        latest_event_num += 1
+
+def _produce_events_forever(client, topic):
+    cb = PeriodicCallback(lambda: _produce_events(client, topic), SEND_INTERVAL_SECONDS*1000, io_loop=client.io_loop)
+    cb.start()
+    return cb
 
 def _register_consumer_instance(host, port, topic):
     payload = {'format': 'avro', 'auto.offset.reset': 'largest', 'auto.commit.enable': True}
@@ -48,38 +62,40 @@ def _set_initial_offset(base_uri, topic):
                      params={'max_bytes': 1024})
     r.raise_for_status()
 
-def _consume_events(base_uri, topic):
+def _consume_events(client, produce_cb, base_uri, topic):
     seen = defaultdict(int)
-    print 'Starting to consume events, interrupt with Ctrl-C'
-    print 'Will notify at 50%, 90%, and 100% of events seen'
-    last_seen, now_seen = 0, 0
-    while True:
+    print 'Starting to consume events'
+    print 'Ctrl-C once to stop producing'
+    print 'Ctrl-C again to stop consuming'
+
+    def signal_handler(signal, frame):
+        global _first_interrupt, _stop
+        if _first_interrupt:
+            print 'Stopping production of new events'
+            produce_cb.stop()
+            _first_interrupt = False
+        else:
+            print 'Stopping consumer'
+            _stop = True
+    signal.signal(signal.SIGINT, signal_handler)
+
+    while not _stop:
+        r = requests.get('{}/topics/{}'.format(base_uri, topic),
+                         headers={'Accept': 'application/vnd.kafka.avro.v1+json'},
+                         params={'max_bytes': 1024*50})
         try:
-            r = requests.get('{}/topics/{}'.format(base_uri, topic),
-                             headers={'Accept': 'application/vnd.kafka.avro.v1+json'},
-                             params={'max_bytes': 1024*50})
-            try:
-                r.raise_for_status()
-            except Exception:
-                print 'Got error response from proxy, waiting 10 seconds to continue'
-                time.sleep(10)
-                continue
-            this_batch = 0
-            for message in r.json():
-                this_batch += 1
-                seen[message['value']['val']] += 1
-            print 'Got {} messages'.format(this_batch)
-            now_seen = len(seen.keys()) / float(NUM_EVENTS)
-            if last_seen < 0.5 and now_seen >= 0.5:
-                print '50% of events seen'
-            if last_seen < 0.9 and now_seen >= 0.9:
-                print '90% of events seen'
-            if last_seen < 1 and now_seen >= 1:
-                print '100% of events seen'
-            last_seen = now_seen
-        except KeyboardInterrupt:
-            print 'Got interrupt'
-            break
+            r.raise_for_status()
+        except Exception:
+            print 'Got error response from proxy, waiting 10 seconds to continue'
+            time.sleep(10)
+            continue
+        this_batch = 0
+        for message in r.json():
+            this_batch += 1
+            seen[message['value']['val']] += 1
+        print 'Got {} messages'.format(this_batch)
+        print '{} produced / {} consumed'.format(latest_event_num, len(seen.keys()))
+
     return seen
 
 def _delete_consumer(base_uri):
@@ -88,7 +104,7 @@ def _delete_consumer(base_uri):
 
 def _write_results(seen):
     exact, missing, extra = 0, 0, 0
-    for i in range(NUM_EVENTS):
+    for i in range(latest_event_num):
         if seen[i] == 0:
             missing += 1
         elif seen[i] == 1:
@@ -96,7 +112,7 @@ def _write_results(seen):
         else:
             extra += 1
 
-    data = {'summary': {'num_events': NUM_EVENTS,
+    data = {'summary': {'num_events': latest_event_num,
                         'exact': exact,
                         'missing': missing,
                         'extra': extra},
@@ -117,9 +133,9 @@ def main(host, port, topic):
     raw_input('Consumer offset initialized, press ENTER to continue\n')
 
     print 'Producing events asynchronously'
-    _produce_events(client, topic)
+    cb = _produce_events_forever(client, topic)
 
-    events_seen = _consume_events(base_uri, topic)
+    events_seen = _consume_events(client, cb, base_uri, topic)
 
     print 'Writing results to {}'.format(RESULT_FILE)
     _write_results(events_seen)
@@ -127,7 +143,6 @@ def main(host, port, topic):
     print 'Cleaning up consumer'
     _delete_consumer(base_uri)
 
-    print 'Shutting down async client'
     client.shutdown(block=True)
 
 if __name__ == '__main__':
