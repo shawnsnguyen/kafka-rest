@@ -160,8 +160,13 @@ class AsyncProducer(object):
             else:
                 error_code, error_message = response_body.get('error_code'), response_body.get('message')
 
+        if response.code not in (200, 599):
+            logger.error('Received {0} response ({1}: {2}) submitting batch to topic {3}'.format(response.code,
+                                                                                                 error_code,
+                                                                                                 error_message,
+                                                                                                 topic))
+
         if response.code >= 500:
-            logger.error('Received {0} response submitting batch to topic {1}: {2}'.format(response.code, topic, response.error))
             self.client.response_5xx_circuit_breaker.record_failure()
             self.client.registrar.emit('response_5xx', topic, response)
         else:
