@@ -57,3 +57,5 @@ docs/_build/
 
 # PyBuilder
 target/
+
+scripts/end_to_end_test.json
