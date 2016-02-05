@@ -12,7 +12,7 @@ from tornado.ioloop import IOLoop, PeriodicCallback
 from tornado.httpclient import AsyncHTTPClient
 from tornado.escape import json_decode
 
-from .rest_proxy import request_for_batch, RETRIABLE_ERROR_CODES
+from .rest_proxy import request_for_batch, ERROR_CODES, RETRIABLE_ERROR_CODES
 from .message import Message
 from .events import FlushReason, DropReason
 
@@ -145,8 +145,20 @@ class AsyncProducer(object):
         del self.inflight_requests[response.request._id]
 
         if response.code != 599:
-            response_body = json_decode(response.body)
-            error_code, error_message = response_body.get('error_code'), response_body.get('message')
+            try:
+                response_body = json_decode(response.body)
+            except Exception:
+                # The proxy should always respond to us in JSON but it's possible
+                # something like a load balancer or reverse proxy could return
+                # a response to us we are not expecting.
+                logger.error('Got unexpected non-JSON body in response, will attempt to retry')
+                self.client.registar.emit('response_malformed', topic, response)
+                self.client.response_5xx_circuit_breaker.record_failure()
+                for message in response.request._batch:
+                    self._queue_message_for_retry(topic, message)
+                return
+            else:
+                error_code, error_message = response_body.get('error_code'), response_body.get('message')
 
         if response.code >= 500:
             logger.error('Received {0} response submitting batch to topic {1}: {2}'.format(response.code, topic, response.error))
