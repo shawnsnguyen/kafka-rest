@@ -191,6 +191,7 @@ class TestProducer(TestCase):
         m1 = Message('test_driver', {'val': 1}, None, None, 0, 1)
         m2 = Message('test_driver', {'val': 2}, None, None, 0, 1)
         response = Mock()
+        response.code = 599
         response.error = object()
         response.request = Mock()
         response.request._batch = [m1, m2]
@@ -198,8 +199,7 @@ class TestProducer(TestCase):
 
         self.producer._handle_produce_response('test_driver', response)
 
-        self.client.mock_for('transport_error').assert_called_once_with('test_driver',
-                                                                        response.error)
+        self.client.mock_for('response_5xx').assert_called_once_with('test_driver', response)
         fake_retry.assert_has_calls([call('test_driver', m1),
                                      call('test_driver', m2)])
 
@@ -280,7 +280,7 @@ class TestProducer(TestCase):
 
     @patch('kafka_rest.producer.AsyncProducer._reset_flush_timer')
     def test_flush_topic_resets_flush_timer_under_circuit_breaker(self, fake_flush_timer):
-        self.client.transport_circuit_breaker.failure_count = sys.maxsize
+        self.client.response_5xx_circuit_breaker.failure_count = sys.maxsize
         self.producer._flush_topic('test_driver', 'testing')
         fake_flush_timer.assert_called_once_with('test_driver')
 

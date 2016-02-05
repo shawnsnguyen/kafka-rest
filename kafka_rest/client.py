@@ -1,3 +1,4 @@
+import sys
 import logging
 from threading import Thread
 try:
@@ -22,8 +23,8 @@ class KafkaRESTClient(object):
                  flush_max_batch_size=50, connect_timeout_seconds=10,
                  request_timeout_seconds=60, retry_base_seconds=2,
                  retry_max_attempts=10, retry_period_seconds=15,
-                 transport_circuit_breaker_trip_threshold=10,
-                 transport_circuit_breaker_trip_duration_seconds=300,
+                 response_5xx_circuit_breaker_trip_threshold=10,
+                 response_5xx_circuit_breaker_trip_duration_seconds=300,
                  shutdown_timeout_seconds=2):
         self.host = host
         self.port = port
@@ -43,8 +44,10 @@ class KafkaRESTClient(object):
         # sort of network problem and other requests are very likely to fail.
         # When this triggers, we wait a short duration before clearing the
         # breaker and attempting any further network operations.
-        self.transport_circuit_breaker_trip_threshold = transport_circuit_breaker_trip_threshold
-        self.transport_circuit_breaker_trip_duration_seconds = transport_circuit_breaker_trip_duration_seconds
+        if response_5xx_circuit_breaker_trip_threshold is None:
+            response_5xx_circuit_breaker_trip_threshold = sys.maxsize
+        self.response_5xx_circuit_breaker_trip_threshold = response_5xx_circuit_breaker_trip_threshold
+        self.response_5xx_circuit_breaker_trip_duration_seconds = response_5xx_circuit_breaker_trip_duration_seconds
         # On shutdown, last-ditch flush attempts are given this
         # request timeout after which they are considered failed
         self.shutdown_timeout_seconds = shutdown_timeout_seconds
@@ -52,8 +55,8 @@ class KafkaRESTClient(object):
         self.in_shutdown = False
 
         self.registrar = EventRegistrar()
-        self.transport_circuit_breaker = CircuitBreaker(self.transport_circuit_breaker_trip_threshold,
-                                                        self.transport_circuit_breaker_trip_duration_seconds)
+        self.response_5xx_circuit_breaker = CircuitBreaker(self.response_5xx_circuit_breaker_trip_threshold,
+                                                           self.response_5xx_circuit_breaker_trip_duration_seconds)
         self.message_queues = defaultdict(lambda: Queue(maxsize=max_queue_size_per_topic))
         self.retry_queues = defaultdict(lambda: PriorityQueue(maxsize=max_queue_size_per_topic))
         self.schema_cache = defaultdict(dict)

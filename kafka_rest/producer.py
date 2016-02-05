@@ -12,7 +12,7 @@ from tornado.ioloop import IOLoop, PeriodicCallback
 from tornado.httpclient import AsyncHTTPClient
 from tornado.escape import json_decode
 
-from .rest_proxy import request_for_batch, RETRIABLE_ERROR_CODES
+from .rest_proxy import request_for_batch, ERROR_CODES, RETRIABLE_ERROR_CODES
 from .message import Message
 from .events import FlushReason, DropReason
 
@@ -56,7 +56,7 @@ class AsyncProducer(object):
     def _start_retries(self):
         """Go through all the retry queues and schedule produce callbacks
         for all messages that are due to be retried."""
-        if self.client.transport_circuit_breaker.tripped:
+        if self.client.response_5xx_circuit_breaker.tripped:
             logger.debug('Transport circuit breaker is tripped, skipping retry pass')
             self.client.registrar.emit('circuit_breaker.retries')
             return
@@ -144,25 +144,33 @@ class AsyncProducer(object):
     def _handle_produce_response(self, topic, response):
         del self.inflight_requests[response.request._id]
 
-        # First, we check for a transport error
-        if response.error:
-            logger.error('Transport error submitting batch to topic {0}: {1}'.format(topic, response.error))
-            self.client.transport_circuit_breaker.record_failure()
-            self.client.registrar.emit('transport_error', topic, response.error)
-            for message in response.request._batch:
-                self._queue_message_for_retry(topic, message)
-            return
+        if response.code != 599:
+            try:
+                response_body = json_decode(response.body)
+            except Exception:
+                # The proxy should always respond to us in JSON but it's possible
+                # something like a load balancer or reverse proxy could return
+                # a response to us we are not expecting.
+                logger.error('Got unexpected non-JSON body in response, will attempt to retry')
+                self.client.registar.emit('response_malformed', topic, response)
+                self.client.response_5xx_circuit_breaker.record_failure()
+                for message in response.request._batch:
+                    self._queue_message_for_retry(topic, message)
+                return
+            else:
+                error_code, error_message = response_body.get('error_code'), response_body.get('message')
 
-        # We should have gotten a well-formed response back from the
-        # proxy if we got this far
-        self.client.transport_circuit_breaker.reset()
-        response_body = json_decode(response.body)
-        error_code, error_message = response_body.get('error_code'), response_body.get('message')
+        if response.code >= 500:
+            logger.error('Received {0} response submitting batch to topic {1}: {2}'.format(response.code, topic, response.error))
+            self.client.response_5xx_circuit_breaker.record_failure()
+            self.client.registrar.emit('response_5xx', topic, response)
+        else:
+            self.client.response_5xx_circuit_breaker.reset()
 
         if response.code == 200:
             self._handle_produce_success(topic, response, response_body)
         else: # We failed somehow, more information in the error code
-            if error_code in RETRIABLE_ERROR_CODES:
+            if response.code == 599 or error_code in RETRIABLE_ERROR_CODES:
                 for message in response.request._batch:
                     self._queue_message_for_retry(topic, message)
             else: # Non-retriable failure of entire request
@@ -170,7 +178,7 @@ class AsyncProducer(object):
                     self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
 
     def _flush_topic(self, topic, reason):
-        if self.client.transport_circuit_breaker.tripped:
+        if self.client.response_5xx_circuit_breaker.tripped:
             logger.debug('Transport circuit breaker is tripped, skipping flush topic')
             self.client.registrar.emit('circuit_breaker.flush_topic', topic, reason)
         else:
@@ -203,7 +211,7 @@ class AsyncProducer(object):
         # Last-ditch send attempts on remaining messages. These will use
         # shorter shutdown timeouts on the request in order to finish
         # by the time we invoke _finish_shutdown
-        self.client.transport_circuit_breaker.reset()
+        self.client.response_5xx_circuit_breaker.reset()
         IOLoop.current().add_callback(self._start_retries)
         for topic, queue in self.client.message_queues.items():
             if not queue.empty():
