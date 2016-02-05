@@ -131,7 +131,8 @@ class AsyncProducer(object):
                 self._queue_message_for_retry(topic, message)
             else:
                 failed.append((message, offset))
-                logger.critical('Got non-retriable Kafka exception "{0}" for message {1}'.format(offset.get('message'),
+                logger.critical('Got non-retriable error code ({0}: {1}) for message {2}'.format(offset.get('error_code'),
+                                                                                                 offset.get('message'),
                                                                                                  response.request._batch[idx]))
                 self.client.registrar.emit('drop_message', topic, message, DropReason.NONRETRIABLE)
 
