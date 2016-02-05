@@ -155,7 +155,7 @@ class TestFlow(TestCase):
 
     def test_response_through_success_with_transport_error(self):
         response = self.make_response(
-            response_attrs={'error': 'anything truthy'})
+            response_attrs={'code': 599})
 
         self.producer._handle_produce_response('test_driver', response)
 
