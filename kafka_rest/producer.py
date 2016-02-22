@@ -153,7 +153,7 @@ class AsyncProducer(object):
                 # something like a load balancer or reverse proxy could return
                 # a response to us we are not expecting.
                 logger.error('Got unexpected non-JSON body in response, will attempt to retry')
-                self.client.registar.emit('response_malformed', topic, response)
+                self.client.registrar.emit('response_malformed', topic, response)
                 self.client.response_5xx_circuit_breaker.record_failure()
                 for message in response.request._batch:
                     self._queue_message_for_retry(topic, message)
