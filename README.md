@@ -10,6 +10,7 @@ Async Python client for [Confluent's Kafka REST proxy](http://docs.confluent.io/
 - [Shutdown Flow](#shutdown-flow)
 - [Circuit Breakers](#circuit-breakers)
 - [Event Hooks](#event-hooks)
+- [Limitations](#limitations)
 
 ## Quick Start
 
@@ -147,3 +148,10 @@ Event handlers are executed on the client's thread, so be sure not to block
 the `IOLoop` for too long.
 
 TODO: Enumerate these in a separate Hooks.md file
+
+## Limitations
+
+* No consumer support
+* Only supports Avro format
+* Assumes value and key schemas for a given topic cannot change during the client / process lifetime
+* Does not provide any sort of synchronous client
