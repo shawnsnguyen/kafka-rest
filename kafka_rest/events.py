@@ -1,7 +1,8 @@
-import logging
 from collections import defaultdict
 
-logger = logging.getLogger('kafka_rest.events')
+from .custom_logging import getLogger
+
+logger = getLogger('kafka_rest.events')
 
 class FlushReason(object):
     LENGTH = 'length'
@@ -28,7 +29,7 @@ class EventRegistrar(object):
 
     def emit(self, event, *args, **kwargs):
         if self.debug:
-            logger.debug('Event: {0} Args: {1} Kwargs: {2}'.format(event, args, kwargs))
+            logger.trace('Event: {0} Args: {1} Kwargs: {2}'.format(event, args, kwargs))
         for handler in self.handlers[event]:
             try:
                 handler(*args, **kwargs)

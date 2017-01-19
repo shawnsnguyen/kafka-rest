@@ -1,4 +1,3 @@
-import logging
 import json
 from functools import partial
 import time
@@ -15,8 +14,9 @@ from tornado.escape import json_decode
 from .rest_proxy import request_for_batch, ERROR_CODES, RETRIABLE_ERROR_CODES
 from .message import Message
 from .events import FlushReason, DropReason
+from .custom_logging import getLogger
 
-logger = logging.getLogger('kafka_rest.producer')
+logger = getLogger('kafka_rest.producer')
 
 class AsyncProducer(object):
     def __init__(self, client):
@@ -28,7 +28,7 @@ class AsyncProducer(object):
                                            max_clients=self.client.http_max_clients)
 
     def _schedule_retry_periodically(self):
-        logger.debug('Scheduling retry queue processing every {0} seconds'.format(self.client.retry_period_seconds))
+        logger.trace('Scheduling retry queue processing every {0} seconds'.format(self.client.retry_period_seconds))
         self.retry_timer = PeriodicCallback(self._start_retries,
                                             self.client.retry_period_seconds * 1000)
         self.retry_timer.start()
@@ -57,22 +57,22 @@ class AsyncProducer(object):
         """Go through all the retry queues and schedule produce callbacks
         for all messages that are due to be retried."""
         if self.client.response_5xx_circuit_breaker.tripped:
-            logger.debug('Transport circuit breaker is tripped, skipping retry pass')
+            logger.trace('Transport circuit breaker is tripped, skipping retry pass')
             self.client.registrar.emit('circuit_breaker.retries')
             return
 
-        logger.debug('Checking retry queues for events to retry')
+        logger.trace('Checking retry queues for events to retry')
         for topic, retry_queue in self.client.retry_queues.items():
             for batch in self._message_batches_from_queue(retry_queue):
-                logger.debug('Retrying batch of size {0} for topic {1}'.format(len(batch), topic))
+                logger.trace('Retrying batch of size {0} for topic {1}'.format(len(batch), topic))
                 self.client.registrar.emit('retry_batch', topic, batch)
                 IOLoop.current().add_callback(self._send_batch_produce_request, topic, batch)
 
     def _reset_flush_timer(self, topic):
         if topic in self.flush_timers:
-            logger.debug('Clearing flush timer for topic {0}'.format(topic))
+            logger.trace('Clearing flush timer for topic {0}'.format(topic))
             IOLoop.current().remove_timeout(self.flush_timers[topic])
-        logger.debug('Scheduled new flush timer for topic {0} in {1} seconds'.format(topic,
+        logger.trace('Scheduled new flush timer for topic {0} in {1} seconds'.format(topic,
                                                                                      self.client.flush_time_threshold_seconds))
         handle = IOLoop.current().call_later(self.client.flush_time_threshold_seconds,
                                              self._flush_topic, topic, FlushReason.TIME)
@@ -104,7 +104,7 @@ class AsyncProducer(object):
                 logger.critical('Retry queue full for topic {0}, message {1} cannot be retried'.format(topic, message))
                 self.client.registrar.emit('drop_message', topic, message, DropReason.RETRY_QUEUE_FULL)
             else:
-                logger.debug('Queued failed message {0} for retry in topic {1}'.format(new_message, topic))
+                logger.trace('Queued failed message {0} for retry in topic {1}'.format(new_message, topic))
                 self.client.registrar.emit('retry_message', topic, new_message)
         else:
             logger.critical('Dropping failed message {0} for topic {1}, has exceeded maximum retries'.format(message, topic))
@@ -139,7 +139,7 @@ class AsyncProducer(object):
         logger.info('Successful produce response for topic {0}. Succeeded: {1} Failed: {2}'.format(topic,
                                                                                                    len(succeeded),
                                                                                                    len(failed)))
-        logger.debug('Failed messages with offsets: {0}'.format(failed))
+        logger.trace('Failed messages with offsets: {0}'.format(failed))
         self.client.registrar.emit('produce_success', topic, succeeded, failed)
 
     def _handle_produce_response(self, topic, response):
@@ -185,10 +185,10 @@ class AsyncProducer(object):
 
     def _flush_topic(self, topic, reason):
         if self.client.response_5xx_circuit_breaker.tripped:
-            logger.debug('Transport circuit breaker is tripped, skipping flush topic')
+            logger.trace('Transport circuit breaker is tripped, skipping flush topic')
             self.client.registrar.emit('circuit_breaker.flush_topic', topic, reason)
         else:
-            logger.debug('Flushing topic {0} (reason: {1})'.format(topic, reason))
+            logger.trace('Flushing topic {0} (reason: {1})'.format(topic, reason))
             self.client.registrar.emit('flush_topic', topic, reason)
             queue = self.client.message_queues[topic]
             for batch in self._message_batches_from_queue(queue):

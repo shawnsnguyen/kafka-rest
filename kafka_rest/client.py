@@ -1,5 +1,4 @@
 import sys
-import logging
 from threading import Thread
 try:
     from queue import Queue, PriorityQueue, Full
@@ -14,8 +13,9 @@ from .circuit_breaker import CircuitBreaker
 from .producer import AsyncProducer
 from .message import Message
 from .exceptions import KafkaRESTShutdownException
+from .custom_logging import getLogger
 
-logger = logging.getLogger('kafka_rest.client')
+logger = getLogger('kafka_rest.client')
 
 class KafkaRESTClient(object):
     def __init__(self, host, port, http_max_clients=10, max_queue_size_per_topic=5000,
@@ -79,10 +79,10 @@ class KafkaRESTClient(object):
             raise KafkaRESTShutdownException('Client is in shutdown state, new events cannot be produced')
 
         if self.schema_cache[topic].get('value') is None:
-            logger.debug('Storing initial value schema for topic {0} in schema cache: {1}'.format(topic, value_schema))
+            logger.trace('Storing initial value schema for topic {0} in schema cache: {1}'.format(topic, value_schema))
             self.schema_cache[topic]['value'] = value_schema
         if key_schema and self.schema_cache[topic].get('key') is None:
-            logger.debug('Storing initial key schema for topic {0} in schema cache: {1}'.format(topic, key_schema))
+            logger.trace('Storing initial key schema for topic {0} in schema cache: {1}'.format(topic, key_schema))
             self.schema_cache[topic]['key'] = key_schema
 
         queue = self.message_queues[topic]
