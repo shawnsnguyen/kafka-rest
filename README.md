@@ -149,6 +149,17 @@ the `IOLoop` for too long.
 
 TODO: Enumerate these in a separate Hooks.md file
 
+## Logging
+
+In addition to standard debug-level logging, the client emits very detailed logs
+at a custom TRACE level. To configure your root logger to show the TRACE logs,
+run the following:
+
+```python
+import logging
+logging.getLogger().setLevel(5)
+```
+
 ## Limitations
 
 * No consumer support
