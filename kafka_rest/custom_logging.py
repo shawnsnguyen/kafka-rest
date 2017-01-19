@@ -13,5 +13,7 @@ def _trace(self, msg, *args, **kwargs):
 def getLogger(name):
     logger = logging.getLogger(name)
 
-    logger.trace = types.MethodType(_trace, logger)
+    if not hasattr(logger, 'trace'):
+        logger.trace = types.MethodType(_trace, logger)
+
     return logger
